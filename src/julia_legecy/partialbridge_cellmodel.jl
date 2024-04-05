@@ -1,6 +1,6 @@
 # reminder, to type H*, do H\^+
-cd("/Users/vbd402/Documents/Projects/guidedscore/")
-outdir="/Users/vbd402/Documents/Projects/guidedscore/examples/cell_model_runs/"
+cd("/Users/vbd402/Documents/Projects/mixedbridge/")
+outdir="/Users/vbd402/Documents/Projects/mixedbridge/examples/cell_model_runs/"
 
 using Bridge, StaticArrays, Distributions
 using Test, Statistics, Random, LinearAlgebra
@@ -8,7 +8,7 @@ using Bridge.Models
 using DelimitedFiles
 using DataFrames
 using CSV
-# using Plots
+using Plots
 
 T = 4.0
 dt = 1/500
@@ -33,7 +33,7 @@ L = @SMatrix [1.0 0.0; 0.0 1.0] # condition on full observation
 
 ρ = 0.98  # pCN parameter
 
-v = ℝ{2}(2.0, -0.1)   # point to condition on at time T (this one is common from forward simulation)
+# v = ℝ{2}(2.0, -0.1)   # point to condition on at time T (this one is common from forward simulation)
 v = ℝ{2}(1.0, -0.1)     # probably rare event
 
 m, d = size(L)
@@ -96,64 +96,64 @@ end
 acc = 0
 lls = [ll]
 
-for iter in 1:iterations
-    # Proposal
-    sample!(W2, Wiener{ℝ{2}}())
+# for iter in 1:iterations
+#     # Proposal
+#     sample!(W2, Wiener{ℝ{2}}())
     
-    Wo.yy .= ρ*W.yy + sqrt(1-ρ^2)*W2.yy
-    solve!(Euler(), Xo, x0, Wo, Po)
+#     Wo.yy .= ρ*W.yy + sqrt(1-ρ^2)*W2.yy
+#     solve!(Euler(), Xo, x0, Wo, Po)
 
-    llo = llikelihood(Bridge.LeftRule(), Xo, Po,skip=sk)
-    print("ll $ll $llo, diff_ll: ",round(llo-ll,digits=3))
+#     llo = llikelihood(Bridge.LeftRule(), Xo, Po,skip=sk)
+#     print("ll $ll $llo, diff_ll: ",round(llo-ll,digits=3))
 
-    if log(rand()) <= llo - ll
-        X.yy .= Xo.yy
-        W.yy .= Wo.yy
-        global ll = llo
-        print("✓")
-        global acc +=1
-    end
-    push!(lls, ll)
-    println()
-    if iter in subsamples
-        push!(XX, copy(X))
-    end
-end
+#     if log(rand()) <= llo - ll
+#         X.yy .= Xo.yy
+#         W.yy .= Wo.yy
+#         global ll = llo
+#         print("✓")
+#         global acc +=1
+#     end
+#     push!(lls, ll)
+#     println()
+#     if iter in subsamples
+#         push!(XX, copy(X))
+#     end
+# end
 
 @info "Done."*"\x7"^6
 
 # plot loglikelihood over iterations
 plot(lls)
 
-# write mcmc iterates to csv file
+# # write mcmc iterates to csv file
 
-fn = outdir*"iterates.csv"
-iterates = [Any[s, tt[j], d, XX[i].yy[j][d]] for d in 1:2, j in 1:length(X), (i,s) in enumerate(subsamples) ][:]
-its = hcat(iterates...)'
-outdf = DataFrame(iteration=its[:,1], time=its[:,2], component=its[:,3], value=its[:,4])
-CSV.write(fn, outdf)
+# fn = outdir*"iterates.csv"
+# iterates = [Any[s, tt[j], d, XX[i].yy[j][d]] for d in 1:2, j in 1:length(X), (i,s) in enumerate(subsamples) ][:]
+# its = hcat(iterates...)'
+# outdf = DataFrame(iteration=its[:,1], time=its[:,2], component=its[:,3], value=its[:,4])
+# CSV.write(fn, outdf)
 
-ave_acc_perc = 100*round(acc/iterations,digits=2)
+# ave_acc_perc = 100*round(acc/iterations,digits=2)
 
-# write info to txt file
-fn = outdir*"info.txt"
-f = open(fn,"w")
-write(f, "Number of iterations: ",string(iterations),"\n")
-write(f, "Skip every ",string(skip_it)," iterations, when saving to csv","\n\n")
-write(f, "Starting point: ",string(x0),"\n")
-write(f, "End time T: ", string(T),"\n")
-write(f, "Endpoint v: ",string(v),"\n")
-write(f, "Noise Sigma: ",string(Σ),"\n")
-write(f, "L: ",string(L),"\n\n")
-write(f,"Mesh width: ",string(dt),"\n")
-write(f, "rho (Crank-Nicholsen parameter: ",string(ρ),"\n")
-write(f, "Average acceptance percentage: ",string(ave_acc_perc),"\n\n")
-write(f, "Backward type parametrisation in terms of nu and H? ",string(νHparam),"\n")
-close(f)
+# # write info to txt file
+# fn = outdir*"info.txt"
+# f = open(fn,"w")
+# write(f, "Number of iterations: ",string(iterations),"\n")
+# write(f, "Skip every ",string(skip_it)," iterations, when saving to csv","\n\n")
+# write(f, "Starting point: ",string(x0),"\n")
+# write(f, "End time T: ", string(T),"\n")
+# write(f, "Endpoint v: ",string(v),"\n")
+# write(f, "Noise Sigma: ",string(Σ),"\n")
+# write(f, "L: ",string(L),"\n\n")
+# write(f,"Mesh width: ",string(dt),"\n")
+# write(f, "rho (Crank-Nicholsen parameter: ",string(ρ),"\n")
+# write(f, "Average acceptance percentage: ",string(ave_acc_perc),"\n\n")
+# write(f, "Backward type parametrisation in terms of nu and H? ",string(νHparam),"\n")
+# close(f)
 
 
-println("Average acceptance percentage: ",ave_acc_perc,"\n")
-println("Parametrisation of nu and H? ", νHparam)
+# println("Average acceptance percentage: ",ave_acc_perc,"\n")
+# println("Parametrisation of nu and H? ", νHparam)
 
 
 # plots of forward simulation of the process

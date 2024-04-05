@@ -3,12 +3,12 @@ Skip every 25 iterations, when saving to csv
 
 Starting point: [0.1, -0.1]
 End time T: 4.0
-Endpoint v: [1.0, -0.1]
+Endpoint v: [3.0, -0.1]
 Noise Sigma: [1.0e-10 0.0; 0.0 1.0e-10]
 L: [1.0 0.0; 0.0 1.0]
 
 Mesh width: 0.002
 rho (Crank-Nicholsen parameter: 0.98
-Average acceptance percentage: 18.0
+Average acceptance percentage: 26.0
 
 Backward type parametrisation in terms of nu and H? false
