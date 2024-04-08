@@ -12,15 +12,15 @@ class ContinuousTimeProcess(abc.ABC):
 
     @property
     def ts(self):
-        return jnp.arange(0, self.T + self.dt, self.dt)
+        return jnp.arange(0, self.T + self.dt, self.dt, dtype=self.dtype) if self.dt is not None else None
     
     @property
     def reverse_ts(self):
-        return self.ts[::-1]
+        return jnp.flip(self.ts) 
     
     @property
     def dts(self):
-        return jnp.diff(self.ts)
+        return jnp.diff(self.ts) 
     
     @abc.abstractmethod
     @partial(jax.jit, static_argnums=(0,))

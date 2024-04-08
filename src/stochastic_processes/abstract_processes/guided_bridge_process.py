@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from .continuous_time_process import ContinuousTimeProcess
 from .auxiliary_process import AuxiliaryProcess
-from ...solvers.sample_path import SamplePath
+from ...utils.sample_path import SamplePath
 from ...backward_filtering.backward_ode import BackwardODE
 
 class GuidedBridgeProcess(ContinuousTimeProcess):
@@ -65,25 +65,29 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         Ls, Ms, mus = self.backward_ode.solve(self.reverse_ts)
         return Ls, Ms, mus
     
-    def log_likelihood(self, sample_path: SamplePath, skip: int = 25):
+    def G(self, t: float, x: jnp.ndarray) -> float:
+        r = self.r(t, x)
+        term1 = (self.ori_process.f(t, x) - self.aux_process.f(t, x)) @ r
+        term2 = 0.5 * jnp.trace(
+            (self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x))
+            @ (self.Hs[self.find_t(t)] - r @ r.T)
+        )
+        return term1 + term2
+    
+    def log_likelihood(self, sample_path: SamplePath, skip: int = 25) -> float:
         ts, xs = sample_path.ts, sample_path.xs
         res = 0.0
 
-        def psi(carry, val):
+        def scan_fn(carry: tuple, val: tuple) -> tuple:
             log_psi = carry
             t, t_next, x = val
-            r = self.r(t, x)
-            term1 = (self.ori_process.f(t, x) - self.aux_process.f(t, x)) @ r
-            term2 = 0.5 * jnp.trace(
-                (self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x))
-                @ (self.Hs[self.find_t(t)] - r @ r.T)
-            )
-            log_psi += (term1 + term2) * (t_next - t)
+            G = self.G(t, x)
+            log_psi += G * (t_next - t)
 
             return log_psi, (t, t_next, x)
 
         slice1 = slice(None, -(skip+1))
         slice2 = slice(1, -skip) if skip > 0 else slice(1, None) 
-        res, _ = jax.lax.scan(psi, 0.0, (ts[slice1], ts[slice2], xs[slice1])) 
+        res, _ = jax.lax.scan(scan_fn, 0.0, (ts[slice1], ts[slice2], xs[slice1])) 
         
         return res
