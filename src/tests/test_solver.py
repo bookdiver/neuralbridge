@@ -2,8 +2,18 @@ import jax
 import jax.numpy as jnp
 
 from ..stochastic_processes.cell_model import CellDiffusionProcess
+from ..solvers.sample_path import SamplePath
 from ..solvers.wiener_process import WienerProcess
 from ..solvers.euler import Euler
+
+def test_sample_path():
+    ts = jnp.linspace(0.0, 1.0, 500)
+    xs = jnp.zeros((len(ts), 2))
+    path = SamplePath(ts, xs)
+    print(path)
+    ys = jnp.ones((len(ts), 3))
+    path.add("ys", ys)
+    print(path)
 
 def test_wiener_process():
     dim = 1

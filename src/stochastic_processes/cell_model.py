@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 
 from .abstract_processes.continuous_time_process import ContinuousTimeProcess
@@ -30,7 +31,6 @@ class CellDiffusionProcess(ContinuousTimeProcess):
     def g(self, t: float, x: jnp.ndarray):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-
     def Sigma(self, t: float, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
@@ -55,13 +55,13 @@ class CellDiffusionProcessAux(AuxiliaryProcess):
 
     def beta(self, t: float):
         return jnp.ones(self.dim, dtype=self.dtype)
-    
+
     def B(self, t: float):
         return -1.0 * jnp.eye(self.dim, dtype=self.dtype)
-    
+
     def g(self, t: float, x: jnp.ndarray):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
-    
+
     def Sigma(self, t: float, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
 

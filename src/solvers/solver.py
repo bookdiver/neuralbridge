@@ -6,6 +6,7 @@ import jax.numpy as jnp
 
 from ..stochastic_processes.abstract_processes.continuous_time_process import ContinuousTimeProcess
 from .wiener_process import WienerProcess
+from .sample_path import SamplePath
 
 class SDESolver(abc.ABC):
     sde: ContinuousTimeProcess
@@ -36,9 +37,9 @@ class SDESolver(abc.ABC):
              **kwargs):
         pass
 
-    def solve(self, x0: jnp.ndarray, dWs: jnp.ndarray = None):
+    def solve(self, x0: jnp.ndarray, dWs: jnp.ndarray = None) -> SamplePath:
         if (dWs is None and self.wiener_process is not None):
-            dWs = self.wiener_process.sample_path(self.ts)
+            dWs = self.wiener_process.sample_path(self.ts).xs
         else:
             assert dWs is not None
         
@@ -49,9 +50,9 @@ class SDESolver(abc.ABC):
 
         init_c = (self.ts[:-1], self.dts, dWs)
 
-        _, path = jax.lax.scan(scan_fn, x0, init_c)
+        _, xs = jax.lax.scan(scan_fn, x0, init_c)
 
-        return path
+        return SamplePath(xs=xs, ts=self.ts[1:])
 
         
 

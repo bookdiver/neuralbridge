@@ -1,7 +1,11 @@
+from functools import partial
+
+import jax
 import jax.numpy as jnp
 
 from .continuous_time_process import ContinuousTimeProcess
 from .auxiliary_process import AuxiliaryProcess
+from ...solvers.sample_path import SamplePath
 from ...backward_filtering.backward_ode import BackwardODE
 
 class GuidedBridgeProcess(ContinuousTimeProcess):
@@ -18,9 +22,8 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         super().__init__()
         assert start.shape == target.shape
         
-        self._B = auxiliary_process.B
-        self._f = original_process.f
-        self._g = original_process.g
+        self.ori_process = original_process
+        self.aux_process = auxiliary_process
 
         self.T = original_process.T
         self.dt = original_process.dt
@@ -37,26 +40,23 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
             Sigma0=Sigma0)
 
         self.Ls, self.Ms, self.mus = self.solve_backward_ode()
+        self.Hs = jax.vmap(lambda L, M: L.T @ M @ L)(self.Ls, self.Ms)
     
     def find_t(self, t: float):
         return (t / self.dt).astype(int)
 
-    def r(self, 
-          t: float, 
-          x: jnp.ndarray, 
-          L: jnp.ndarray, 
-          M: jnp.ndarray,
-          mu: jnp.ndarray) -> jnp.ndarray:
-        return -L @ self._B(t) @ M @ (self.target - mu - L @ x)
-        
-    def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
+    @partial(jax.jit, static_argnums=(0,))
+    def r(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
         t_idx = self.find_t(t)
         L, M, mu = self.Ls[t_idx], self.Ms[t_idx], self.mus[t_idx]
-        return self._f(t, x, *args, *kwargs)  \
-               + self.Sigma(t, x, *args, **kwargs) @ self.r(t, x, L, M, mu, *args, **kwargs)
+        return -L.T @ self.aux_process.B(t) @ M @ (self.target - mu - L @ x)
+    
+    def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
+        return self.ori_process.f(t, x, *args, *kwargs)  \
+               + self.Sigma(t, x, *args, **kwargs) @ self.r(t, x, *args, **kwargs)
     
     def g(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self._g(t, x, *args, **kwargs)
+        return self.ori_process.g(t, x, *args, **kwargs)
 
     def Sigma(self, t: float, x: jnp.ndarray, *args, **kwargs):
         return self.g(t, x, *args, **kwargs) @ self.g(t, x, *args, **kwargs).T
@@ -64,3 +64,26 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     def solve_backward_ode(self):
         Ls, Ms, mus = self.backward_ode.solve(self.reverse_ts)
         return Ls, Ms, mus
+    
+    def log_likelihood(self, sample_path: SamplePath, skip: int = 25):
+        ts, xs = sample_path.ts, sample_path.xs
+        res = 0.0
+
+        def psi(carry, val):
+            log_psi = carry
+            t, t_next, x = val
+            r = self.r(t, x)
+            term1 = (self.ori_process.f(t, x) - self.aux_process.f(t, x)) @ r
+            term2 = 0.5 * jnp.trace(
+                (self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x))
+                @ (self.Hs[self.find_t(t)] - r @ r.T)
+            )
+            log_psi += (term1 + term2) * (t_next - t)
+
+            return log_psi, (t, t_next, x)
+
+        slice1 = slice(None, -(skip+1))
+        slice2 = slice(1, -skip) if skip > 0 else slice(1, None) 
+        res, _ = jax.lax.scan(psi, 0.0, (ts[slice1], ts[slice2], xs[slice1])) 
+        
+        return res
