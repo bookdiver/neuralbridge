@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 
 from ..stochastic_processes.cell_model import CellDiffusionProcess, CellDiffusionProcessAux
-from ..backward_filtering.backward_ode import BackwardODE
+from ..solvers.ode import BackwardODE
 
 def test_backward_ode():
     alpha = 1.0 / 16.0

@@ -1,8 +1,9 @@
-import jax
 import jax.numpy as jnp
 
-from .abstract_processes.continuous_time_process import ContinuousTimeProcess
-from .abstract_processes.auxiliary_process import AuxiliaryProcess
+from .bases import (
+    ContinuousTimeProcess,
+    AuxiliaryProcess
+)
 
 class CellDiffusionProcess(ContinuousTimeProcess):
 
@@ -23,7 +24,9 @@ class CellDiffusionProcess(ContinuousTimeProcess):
         self.sigma = sigma
 
     def f(self, t: float, x: jnp.ndarray):
-        u = lambda x, alpha: x**4 / (alpha + x**4)
+        def u(x, alpha):
+            return x**4 / (alpha + x**4)
+        
         return jnp.array([u(x[0], self.alpha) + 1.0 - u(x[1], self.alpha) - x[0],
                             u(x[1], self.alpha) + 1.0 - u(x[0], self.alpha) - x[1]],
                             dtype=self.dtype)

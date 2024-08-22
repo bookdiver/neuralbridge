@@ -30,6 +30,12 @@ class SamplePath:
         except KeyError:
             raise AttributeError(f"{type(self).__name__} has no attribute '{key}'")
     
+    # def __setattr__(self, key: str, val: jnp.ndarray) -> None:
+    #     try:
+    #         self.path[key] = val
+    #     except AttributeError:
+    #         self.add(key, val)
+            
     @property
     def n_steps(self) -> int:
         try:
@@ -37,9 +43,9 @@ class SamplePath:
         except AttributeError:
             return 0
     
-    def add(self, name: str, value: jnp.ndarray) -> None:
-        assert isinstance(value, jnp.ndarray), "Only jnp.ndarray is allowed"
-        self.path[name] = value
+    def add(self, key: str, val: jnp.ndarray) -> None:
+        assert isinstance(val, jnp.ndarray), "Only jnp.ndarray is allowed"
+        self.path[key] = val
 
     def copy(self) -> "SamplePath":
         return SamplePath(self.name, **self.path)

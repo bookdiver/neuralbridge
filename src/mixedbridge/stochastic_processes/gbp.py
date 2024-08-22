@@ -1,12 +1,10 @@
 from functools import partial
-
 import jax
 import jax.numpy as jnp
 
-from .continuous_time_process import ContinuousTimeProcess
-from .auxiliary_process import AuxiliaryProcess
-from ...utils.sample_path import SamplePath
-from ...backward_filtering.backward_ode import BackwardODE
+from .bases import ContinuousTimeProcess, AuxiliaryProcess
+from ..solvers.ode import BackwardODE
+from ..utils.sample_path import SamplePath
 
 class GuidedBridgeProcess(ContinuousTimeProcess):
 

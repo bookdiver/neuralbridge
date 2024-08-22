@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 
-from .continuous_time_process import ContinuousTimeProcess
-from ...utils.sample_path import SamplePath
+from .bases import ContinuousTimeProcess
+from ..utils.sample_path import SamplePath
 
 class WienerProcess(ContinuousTimeProcess):
 
@@ -36,7 +36,7 @@ class WienerProcess(ContinuousTimeProcess):
         dW = jax.random.normal(rng_key, (self.dim,), dtype=self.dtype) * jnp.sqrt(dt)
         return dW
     
-    def sample_path(self, evaluate_ts: jnp.ndarray=None) -> jnp.ndarray:
+    def sample_path(self, evaluate_ts: jnp.ndarray) -> jnp.ndarray:
         if evaluate_ts is None and self.ts is not None:
             ts = self.ts
         elif evaluate_ts is not None:
