@@ -13,10 +13,8 @@ class ContinuousTimeProcess(abc.ABC):
 
     @property
     def ts(self):
-        if self.dt is not None:
-            return jnp.arange(0, self.T + self.dt, self.dt, dtype=self.dtype)
-        else:
-            return None
+        assert self.dt is not None, "Time step size must be provided!"
+        return jnp.arange(0, self.T + self.dt, self.dt, dtype=self.dtype)
     
     @property
     def reverse_ts(self):
