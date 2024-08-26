@@ -9,10 +9,10 @@ from ..utils.sample_path import SamplePath
 
 class SDESolver(abc.ABC):
     sde: ContinuousTimeProcess
-    wiener_process: WienerProcess = None
+    wiener_process: WienerProcess
 
     def __init__(
-        self, sde: ContinuousTimeProcess, wiener_process: WienerProcess = None
+        self, sde: ContinuousTimeProcess, wiener_process: WienerProcess
     ):
         self.sde = sde
         self.wiener_process = wiener_process
@@ -32,12 +32,19 @@ class SDESolver(abc.ABC):
         pass
 
     def solve(
-        self, x0: jnp.ndarray, dWs: jnp.ndarray = None, log_likelihood: bool = False, path: SamplePath = None,
+        self, x0: jnp.ndarray, rng_key: jax.Array, dWs: jnp.ndarray, *, log_likelihood: bool = False, path: SamplePath = None, n_batches: int = 1
     ) -> SamplePath:
-        if dWs is None and self.wiener_process is not None:
-            dWs = self.wiener_process.sample_path(self.ts).xs
+        if dWs is None:
+            assert rng_key is not None, "Either dWs or rng_key must be provided"
+            path_sampler = self.wiener_process.path_sampler(
+                rng_key,
+                evaluate_ts=self.ts,
+                n_batches=n_batches
+            )
+            dWs = next(path_sampler).xs
         else:
-            assert dWs is not None
+            assert dWs.shape[0] == n_batches, "Number of batches must match the shape of dWs"
+            
 
         def scan_fn(carry: tuple, val: tuple) -> tuple:
             x, log_psi = carry
@@ -47,9 +54,12 @@ class SDESolver(abc.ABC):
             log_psi += G * dt
             return (x_next, log_psi), x_next
 
-        (_, log_ll), xs = jax.lax.scan(
-            scan_fn, init=(x0, 0.0), xs=(self.ts[:-1], self.dts, dWs)
-        )
+        (_, log_ll), xs = jax.vmap(
+            lambda dW: jax.lax.scan(
+                scan_fn, init=(x0, 0.0), xs=(self.ts[:-1], self.dts, dW)
+            ),
+            in_axes=0
+        )(dWs)
 
         if path:
             path.xs = xs
