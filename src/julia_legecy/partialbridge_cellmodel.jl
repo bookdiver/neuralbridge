@@ -1,6 +1,6 @@
 # reminder, to type H*, do H\^+
 cd("/Users/vbd402/Documents/Projects/mixedbridge/")
-outdir="/Users/vbd402/Documents/Projects/mixedbridge/examples/cell_model_runs/"
+outdir="/Users/vbd402/Documents/Projects/mixedbridge/notebooks/cell_model_runs/"
 
 using Bridge, StaticArrays, Distributions
 using Test, Statistics, Random, LinearAlgebra
@@ -127,35 +127,35 @@ plot(lls)
 
 # write mcmc iterates to csv file
 
-fn = outdir*"iterates.csv"
-iterates = [Any[s, tt[j], d, XX[i].yy[j][d]] for d in 1:2, j in 1:length(X), (i,s) in enumerate(subsamples) ][:]
-its = hcat(iterates...)'
-outdf = DataFrame(iteration=its[:,1], time=its[:,2], component=its[:,3], value=its[:,4])
-CSV.write(fn, outdf)
+# fn = outdir*"iterates.csv"
+# iterates = [Any[s, tt[j], d, XX[i].yy[j][d]] for d in 1:2, j in 1:length(X), (i,s) in enumerate(subsamples) ][:]
+# its = hcat(iterates...)'
+# outdf = DataFrame(iteration=its[:,1], time=its[:,2], component=its[:,3], value=its[:,4])
+# CSV.write(fn, outdf)
 
-ave_acc_perc = 100*round(acc/iterations,digits=2)
+# ave_acc_perc = 100*round(acc/iterations,digits=2)
 
-# write info to txt file
-fn = outdir*"info.txt"
-f = open(fn,"w")
-write(f, "Number of iterations: ",string(iterations),"\n")
-write(f, "Skip every ",string(skip_it)," iterations, when saving to csv","\n\n")
-write(f, "Starting point: ",string(x0),"\n")
-write(f, "End time T: ", string(T),"\n")
-write(f, "Endpoint v: ",string(v),"\n")
-write(f, "Noise Sigma: ",string(Σ),"\n")
-write(f, "L: ",string(L),"\n\n")
-write(f,"Mesh width: ",string(dt),"\n")
-write(f, "rho (Crank-Nicholsen parameter: ",string(ρ),"\n")
-write(f, "Average acceptance percentage: ",string(ave_acc_perc),"\n\n")
-write(f, "Backward type parametrisation in terms of nu and H? ",string(νHparam),"\n")
-close(f)
-
-
-println("Average acceptance percentage: ",ave_acc_perc,"\n")
-println("Parametrisation of nu and H? ", νHparam)
+# # write info to txt file
+# fn = outdir*"info.txt"
+# f = open(fn,"w")
+# write(f, "Number of iterations: ",string(iterations),"\n")
+# write(f, "Skip every ",string(skip_it)," iterations, when saving to csv","\n\n")
+# write(f, "Starting point: ",string(x0),"\n")
+# write(f, "End time T: ", string(T),"\n")
+# write(f, "Endpoint v: ",string(v),"\n")
+# write(f, "Noise Sigma: ",string(Σ),"\n")
+# write(f, "L: ",string(L),"\n\n")
+# write(f,"Mesh width: ",string(dt),"\n")
+# write(f, "rho (Crank-Nicholsen parameter: ",string(ρ),"\n")
+# write(f, "Average acceptance percentage: ",string(ave_acc_perc),"\n\n")
+# write(f, "Backward type parametrisation in terms of nu and H? ",string(νHparam),"\n")
+# close(f)
 
 
-# plots of forward simulation of the process
-W = sample(tt, Wiener{ℝ{2}}()); X = solve(Euler(), x0, W, P)
-p1 = plot(X.tt, first.(X.yy)); p2 = plot(X.tt, last.(X.yy)); plot(p1, p2)
+# println("Average acceptance percentage: ",ave_acc_perc,"\n")
+# println("Parametrisation of nu and H? ", νHparam)
+
+
+# # plots of forward simulation of the process
+# W = sample(tt, Wiener{ℝ{2}}()); X = solve(Euler(), x0, W, P)
+# p1 = plot(X.tt, first.(X.yy)); p2 = plot(X.tt, last.(X.yy)); plot(p1, p2)

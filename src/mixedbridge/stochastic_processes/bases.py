@@ -1,4 +1,3 @@
-from __future__ import annotations
 import abc
 from functools import partial
 
@@ -10,6 +9,12 @@ class ContinuousTimeProcess(abc.ABC):
     dtype: jnp.dtype
     T: float
     dt: float
+    
+    def __init__(self, T: float, dt: float, dim: int, dtype: jnp.dtype):
+        self.T = T
+        self.dt = dt
+        self.dim = dim
+        self.dtype = dtype
 
     @property
     def ts(self):
@@ -44,6 +49,9 @@ class AuxiliaryProcess(ContinuousTimeProcess):
     dtype: jnp.dtype
     T: float
     dt: float
+    
+    def __init__(self, T: float, dt: float, dim: int, dtype: jnp.dtype):
+        super().__init__(T, dt, dim, dtype)
 
     @abc.abstractmethod
     def beta(self, t: float, *args, **kwargs):

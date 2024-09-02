@@ -17,16 +17,11 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
                  start: jnp.ndarray,
                  target: jnp.ndarray,
                  ):
-        super().__init__()
+        super().__init__(original_process.T, original_process.dt, original_process.dim, original_process.dtype)
         assert start.shape == target.shape
         
         self.ori_process = original_process
         self.aux_process = auxiliary_process
-
-        self.T = original_process.T
-        self.dt = original_process.dt
-        self.dim = original_process.dim
-        self.dtype = original_process.dtype
 
         self.start = start
         self.target = target
@@ -66,11 +61,14 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     def G(self, t: float, x: jnp.ndarray) -> float:
         r = self.r(t, x)
         term1 = (self.ori_process.f(t, x) - self.aux_process.f(t, x)) @ r
-        term2 = 0.5 * jnp.trace(
-            (self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x))
-            @ (self.Hs[self.find_t(t)] - r @ r.T)
-        )
-        return term1 + term2
+        # term2 = 0.5 * jnp.trace(
+        #     (self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x))
+        #     @ (self.Hs[self.find_t(t)] - r @ r.T)
+        # )
+        A = self.ori_process.Sigma(t, x) - self.aux_process.Sigma(t, x)
+        term2 = -0.5 * jnp.trace(A @ self.Hs[self.find_t(t)])
+        term3 = 0.5 * r @ A @ r
+        return term1 + term2 + term3
     
     def log_likelihood(self, sample_path: SamplePath, skip: int = 25) -> float:
         ts, xs = sample_path.ts, sample_path.xs
