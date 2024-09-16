@@ -2,16 +2,21 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 
+from ..stochastic_processes.bases import ContinuousTimeProcess
 from ..stochastic_processes.gbp import GuidedBridgeProcess
 from ..stochastic_processes.wiener import WienerProcess
 from ..solvers.sde import Euler
 
 class PreconditionedCrankNicolson:
     def __init__(self, 
-                 rho: float,
                  x0: jnp.ndarray,
-                 guided_process: GuidedBridgeProcess,
+                 xT: jnp.ndarray,
+                 ori_proc: ContinuousTimeProcess,
+                 aux_proc: ContinuousTimeProcess,
                  *,
+                 rho: float,
+                 L0: jnp.ndarray,
+                 Sigma0: jnp.ndarray,
                  rng_key: jax.Array = jax.random.PRNGKey(42),
                  n_batches: int = 1
                 ):
@@ -19,11 +24,11 @@ class PreconditionedCrankNicolson:
         self.x0 = x0
         self.n_batches = n_batches
         
-        self.dim = guided_process.dim
-        self.dtype = guided_process.dtype
-        self.T = guided_process.T
-        self.dt = guided_process.dt
-        self.ts = guided_process.ts
+        self.dim = ori_proc.dim
+        self.dtype = ori_proc.dtype
+        self.T = ori_proc.T
+        self.dt = ori_proc.dt
+        self.ts = ori_proc.ts
 
         self.wiener = WienerProcess(self.dim, self.dtype, self.T, self.dt)
         self.rng_key = rng_key
@@ -31,10 +36,11 @@ class PreconditionedCrankNicolson:
         self.W_sampler = self.wiener.path_sampler(key1, n_batches=self.n_batches)
         self.Z_sampler = self.wiener.path_sampler(key2, n_batches=self.n_batches)
 
+        guided_process = GuidedBridgeProcess(ori_proc, aux_proc, L0, Sigma0, x0=x0, xT=xT)
         self.solver = Euler(guided_process, self.wiener)
 
     @partial(jax.jit, static_argnums=(0,))
-    def update_step(self, rng_key, path_X, ll_X, Ws):
+    def run_step(self, rng_key, path_X, ll_X, Ws):
         key1, key2 = jax.random.split(rng_key, 2)
         Zs = self.wiener.sample_path(key1, ts=self.ts, n_batches=self.n_batches).xs
         Wos = self.rho * Ws + jnp.sqrt(1 - self.rho**2) * Zs
@@ -64,18 +70,18 @@ class PreconditionedCrankNicolson:
         return path_X_new, Ws_new, ll_X_new, accepted
 
     @partial(jax.jit, static_argnums=(0, 1))
-    def update_loop(self, n_iters, init_state):
+    def run_loop(self, n_iters, init_state):
         def body_fun(i, state):
             path_X, Ws, ll_X, accepts, ll_Xs, rng_key = state
             rng_key, subkey = jax.random.split(rng_key)
-            path_X, Ws, ll_X, accepted = self.update_step(subkey, path_X, ll_X, Ws)
+            path_X, Ws, ll_X, accepted = self.run_step(subkey, path_X, ll_X, Ws)
             accepts += accepted
             ll_Xs = ll_Xs.at[i+1].set(ll_X)
             return path_X, Ws, ll_X, accepts, ll_Xs, rng_key
 
         return jax.lax.fori_loop(0, n_iters, body_fun, init_state)
 
-    def update(self, n_iters: int, verbose: bool=True, log_every: int=1):
+    def run(self, n_iters: int, verbose: bool=True, log_every: int=1):
         key1, key2 = jax.random.split(self.rng_key)
         Ws = self.wiener.sample_path(key1, ts=self.ts, n_batches=self.n_batches).xs
         path_X = self.solver.solve(self.x0, rng_key=None, dWs=Ws, log_likelihood=True, n_batches=self.n_batches)
@@ -84,7 +90,7 @@ class PreconditionedCrankNicolson:
         ll_Xs = ll_Xs.at[0].set(ll_X)
 
         init_state = (path_X, Ws, ll_X, jnp.zeros(self.n_batches), ll_Xs, key2)
-        path_X, Ws, ll_X, accepts, ll_Xs, self.rng_key = self.update_loop(n_iters, init_state)
+        path_X, Ws, ll_X, accepts, ll_Xs, self.rng_key = self.run_loop(n_iters, init_state)
 
         if verbose:
             for i in range(0, n_iters, log_every):

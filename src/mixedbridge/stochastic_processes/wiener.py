@@ -26,6 +26,9 @@ class WienerProcess(ContinuousTimeProcess):
     
     def Sigma(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
         pass
+    
+    def inv_Sigma(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
+        pass
 
     def sample_step(self, dt: float, rng_key: jax.Array) -> jnp.ndarray:
         dW = jax.random.normal(rng_key, (self.dim,), dtype=self.dtype) * jnp.sqrt(dt)
@@ -50,11 +53,19 @@ class WienerProcess(ContinuousTimeProcess):
             name=f"{self.dim}-dimensional Wiener process"
         )
     
-    def path_sampler(self, rng_key: jax.Array, evaluate_ts: jnp.ndarray = None, *, n_batches: int = 1) -> Generator[SamplePath, None, None]:
-        if evaluate_ts is None:
-            ts = self.ts
-        else:
-            ts = evaluate_ts
+    def path_sampler(self, rng_key: jax.Array, evaluate_ts: jnp.ndarray | None = None, *, n_batches: int = 1) -> Generator[SamplePath, None, None]:
+        """
+        Generates a sample path of the Wiener process, used for the MCMC sampling.
+
+        Args:
+            rng_key (jax.Array): Random number generator key.
+            evaluate_ts (jnp.ndarray, optional): Time steps at which to evaluate the process. Defaults to None.
+            n_batches (int, optional): Number of batches to generate. Defaults to 1.
+
+        Yields:
+            Generator[SamplePath, None, None]: A generator yielding sample paths of the Wiener process.
+        """
+        ts = evaluate_ts if evaluate_ts is not None else self.ts
             
         while True:
             rng_key, subkey = jax.random.split(rng_key)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import partial
 import abc
 import jax
 import jax.numpy as jnp
@@ -16,6 +17,7 @@ class SDESolver(abc.ABC):
     ):
         self.sde = sde
         self.wiener_process = wiener_process
+        self._dts = jnp.diff(self.sde.ts)  # Cache dts
 
     @property
     def ts(self):
@@ -23,7 +25,7 @@ class SDESolver(abc.ABC):
 
     @property
     def dts(self):
-        return jnp.diff(self.ts)
+        return self._dts
 
     @abc.abstractmethod
     def step(
@@ -32,20 +34,9 @@ class SDESolver(abc.ABC):
         pass
 
     def solve(
-        self, x0: jnp.ndarray, rng_key: jax.Array, dWs: jnp.ndarray, *, log_likelihood: bool = False, path: SamplePath = None, n_batches: int = 1
+        self, x0: jnp.ndarray, rng_key: jax.Array, dWs: jnp.ndarray | None, *, log_likelihood: bool = False, n_batches: int = 1
     ) -> SamplePath:
-        if dWs is None:
-            assert rng_key is not None, "Either dWs or rng_key must be provided"
-            path_sampler = self.wiener_process.path_sampler(
-                rng_key,
-                evaluate_ts=self.ts,
-                n_batches=n_batches
-            )
-            dWs = next(path_sampler).xs
-        else:
-            assert dWs.shape[0] == n_batches, "Number of batches must match the shape of dWs"
-            
-
+        
         def scan_fn(carry: tuple, val: tuple) -> tuple:
             x, log_psi = carry
             t, dt, dW = val
@@ -53,6 +44,16 @@ class SDESolver(abc.ABC):
             G = self.sde.G(t, x) if log_likelihood else 0.0
             log_psi += G * dt
             return (x_next, log_psi), x_next
+        
+        if dWs is None:
+            assert rng_key is not None, "Either dWs or rng_key must be provided"
+            dWs = self.wiener_process.sample_path(
+                rng_key,
+                ts=self.ts,
+                n_batches=n_batches
+            ).xs
+        else:
+            assert dWs.shape[0] == n_batches, "Number of batches must match the shape of dWs"
 
         (_, log_ll), xs = jax.vmap(
             lambda dW: jax.lax.scan(
@@ -61,15 +62,10 @@ class SDESolver(abc.ABC):
             in_axes=0
         )(dWs)
 
-        if path:
-            path.xs = xs
-            path.ts = self.ts[1:]
-            path.log_likelihood = log_ll
-            return path
-        else:
-            return SamplePath(xs=xs, ts=self.ts[1:], log_likelihood=log_ll)
+        return SamplePath(xs=xs, ts=self.ts[1:], log_likelihood=log_ll)
 
 
 class Euler(SDESolver):
+    @partial(jax.jit, static_argnums=(0,))
     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray):
         return x + self.sde.f(t, x) * dt + self.sde.g(t, x) @ dW

@@ -27,6 +27,9 @@ class OUProcess(ContinuousTimeProcess):
     def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
 class OUBridgeProcess(ContinuousTimeProcess):
     
     def __init__(self,
@@ -53,6 +56,9 @@ class OUBridgeProcess(ContinuousTimeProcess):
     
     def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
 
 
 class CellDiffusionProcess(ContinuousTimeProcess):
@@ -83,7 +89,9 @@ class CellDiffusionProcess(ContinuousTimeProcess):
     def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
 class CellDiffusionAuxProcess(AuxiliaryProcess):
 
     def __init__(self, 

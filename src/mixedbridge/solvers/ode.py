@@ -12,24 +12,24 @@ SolverState = namedtuple("SolverState", ["L", "M_diag", "mu"])
 class BackwardODE:
     def __init__(
         self,
-        original_process: ContinuousTimeProcess,
-        auxiliary_process: AuxiliaryProcess,
+        ori_proc: ContinuousTimeProcess,
+        aux_proc: AuxiliaryProcess,
         L0: jnp.ndarray,
         Sigma0: jnp.ndarray,
     ):
-        self.g = partial(original_process.g, x=None)
-        self.B = auxiliary_process.B
-        self.beta = auxiliary_process.beta
+        self.Sigma = partial(ori_proc.Sigma, x=None)
+        self.B = aux_proc.B
+        self.beta = aux_proc.beta
         self.L0 = L0
         self.Sigma0 = Sigma0
 
     def solve_step(self, solver_state: namedtuple, t: float, dt: float) -> namedtuple:
-        L = kernel_r3(lambda t, x: -self.B(t) @ x, t, solver_state.L, dt)
+        L = kernel_r3(lambda t, x: x @ self.B(t), t, solver_state.L, dt)
         M_diag = kernel_r3(
-            lambda t, x: L @ self.g(t) @ self.g(t).T @ L.T, t, solver_state.M_diag, dt
+            lambda t, x: L @ self.Sigma(t) @ L.T, t, solver_state.M_diag, dt
         )
         M = jnp.linalg.inv(M_diag)
-        mu = kernel_r3(lambda t, x: -L @ self.beta(t), t, solver_state.mu, dt)
+        mu = kernel_r3(lambda t, x: L @ self.beta(t), t, solver_state.mu, dt)
 
         new_state = SolverState(L=L, M_diag=M_diag, mu=mu)
         return new_state, (L, M, mu)
@@ -43,6 +43,7 @@ class BackwardODE:
         _, (Ls, Ms, mus) = jax.lax.scan(solve_step, init_state, reverse_ts)
 
         return Ls[::-1, ...], Ms[::-1, ...], mus[::-1, ...]
+        # return Ls, Ms, mus
 
 
 def kernel_r3(
