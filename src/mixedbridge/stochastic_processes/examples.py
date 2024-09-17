@@ -19,7 +19,7 @@ class OUProcess(ContinuousTimeProcess):
         self.sigma = sigma
         
     def f(self, t: jnp.ndarray, x: jnp.ndarray):
-        return - self.gamma * jnp.eye(self.dim, dtype=self.dtype)
+        return - self.gamma * x
     
     def g(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
@@ -29,6 +29,31 @@ class OUProcess(ContinuousTimeProcess):
     
     def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
+class OUAuxProcess(AuxiliaryProcess):
+    
+    def __init__(self,
+                 sigma: float,
+                 *,
+                 T: float = 1.0,
+                 dt: float = 1e-2,
+                 dim: int = 1,
+                 dtype: jnp.dtype = jnp.float32):
+        super().__init__(T, dt, dim, dtype)
+        self.sigma = sigma
+        
+    def beta(self, t: jnp.ndarray):
+        return jnp.zeros(self.dim, dtype=self.dtype)
+
+    def B(self, t: jnp.ndarray):
+        return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
+    
+    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+        return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
+    
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
     
 class OUBridgeProcess(ContinuousTimeProcess):
     

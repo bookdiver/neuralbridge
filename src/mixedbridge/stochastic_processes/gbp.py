@@ -63,7 +63,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     
     def G(self, t: float, x: jnp.ndarray) -> float:
         r = self.r(t, x)
-        term1 = jnp.inner(self.ori_proc.f(t, x) - self.aux_proc.f(t, x), r)
+        term1 = jnp.dot(self.ori_proc.f(t, x) - self.aux_proc.f(t, x), r)
         A = self.ori_proc.Sigma(t, x) - self.aux_proc.Sigma(t, x)
         term2 = -0.5 * jnp.trace(A @ (self.Hs[self.find_t(t)] - r @ r.T))
         return term1 + term2
