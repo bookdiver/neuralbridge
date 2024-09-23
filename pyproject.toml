@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mixedbridge"
+version = "0.1.0"
+description = "A description of your project"
+readme = "README.md"
+requires-python = ">=3.6"
+dependencies = [
+    "flax",
+    "optax",
+    "matplotlib",
+    "jupyter",
+    "pytest",
+]
+
+[project.optional-dependencies]
+cpu = ["jax[cpu]", "jaxlib"]
+gpu = ["jax[cuda]", "jaxlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
