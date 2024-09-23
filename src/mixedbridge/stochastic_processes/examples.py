@@ -84,6 +84,34 @@ class OUBridgeProcess(ContinuousTimeProcess):
     
     def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+    
+
+class GeometricBrownianMotion(ContinuousTimeProcess):
+
+    def __init__(self,
+                 mu: float,
+                 sigma: float,
+                 *,
+                 T: float = 1.0,
+                 dt: float = 1e-2,
+                 dim: int = 1,
+                 dtype: jnp.dtype = jnp.float32):
+        super().__init__(T, dt, dim, dtype)
+        self.mu = mu
+        self.sigma = sigma
+
+    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+        return self.mu * x
+
+    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+        return self.sigma * x
+    
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return self.sigma**2 * x**2
+    
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+        return 1.0 / self.sigma**2 * x**-2
+    
 
 
 class CellDiffusionProcess(ContinuousTimeProcess):

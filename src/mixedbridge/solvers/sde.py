@@ -62,7 +62,7 @@ class SDESolver(abc.ABC):
             in_axes=0
         )(dWs)
 
-        return SamplePath(xs=xs, ts=self.ts[1:], log_likelihood=log_ll)
+        return SamplePath(xs=xs, ts=self.ts[1:], dWs=dWs, log_likelihood=log_ll)
 
 
 class Euler(SDESolver):
