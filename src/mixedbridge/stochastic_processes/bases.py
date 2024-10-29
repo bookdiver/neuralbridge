@@ -1,34 +1,18 @@
 import abc
-from typing import Callable
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 
 class ContinuousTimeProcess(abc.ABC):
-
+    T: float
     dim: int
     dtype: jnp.dtype
-    T: float
-    dt: float
     
-    def __init__(self, T: float, dt: float, dim: int, dtype: jnp.dtype):
+    def __init__(self, T: float, dim: int, dtype: Optional[jnp.dtype] = jnp.float32):
         self.T = T
-        self.dt = dt
         self.dim = dim
-        self.dtype = dtype
-
-    @property
-    def ts(self):
-        assert self.dt is not None, "Time step size must be provided!"
-        return jnp.arange(0, self.T + self.dt, self.dt, dtype=self.dtype)
-    
-    @property
-    def reverse_ts(self):
-        return jnp.flip(self.ts) 
-    
-    @property
-    def dts(self):
-        return jnp.diff(self.ts) 
+        self.dtype = dtype 
     
     @abc.abstractmethod
     def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
@@ -53,14 +37,12 @@ class ContinuousTimeProcess(abc.ABC):
         return jnp.trace(_jacobian)
     
 class AuxiliaryProcess(ContinuousTimeProcess):
-
+    T: float
     dim: int
     dtype: jnp.dtype
-    T: float
-    dt: float
     
-    def __init__(self, T: float, dt: float, dim: int, dtype: jnp.dtype):
-        super().__init__(T, dt, dim, dtype)
+    def __init__(self, T: float, dim: int, dtype: Optional[jnp.dtype] = jnp.float32):
+        super().__init__(T, dim, dtype)
 
     @abc.abstractmethod
     def beta(self, t: float, *args, **kwargs):
@@ -76,37 +58,6 @@ class AuxiliaryProcess(ContinuousTimeProcess):
     @abc.abstractmethod
     def g(self, t: float, x: jnp.ndarray, *args, **kwargs):
         pass 
-
-class BridgeProcess(ContinuousTimeProcess):
-    dim: int
-    dtype: jnp.dtype
-    T: float
-    dt: float
-    _f: Callable[[float, jnp.ndarray], jnp.ndarray]
-    _g: Callable[[float, jnp.ndarray], jnp.ndarray]
-    score_fn: Callable[[float, jnp.ndarray], jnp.ndarray]
-    
-    def __init__(self, 
-                 T: float, 
-                 dt: float, 
-                 dim: int, 
-                 dtype: jnp.dtype, 
-                 f: Callable[[float, jnp.ndarray], jnp.ndarray],
-                 g: Callable[[float, jnp.ndarray], jnp.ndarray],
-                 score_fn: Callable[[float, jnp.ndarray], jnp.ndarray] | None = None):
-        super().__init__(T, dt, dim, dtype)
-        self._f = f
-        self._g = g
-        self._score_fn = score_fn
-        
-    def score(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self._score_fn(t, x)
-    
-    def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self._f(t, x, *args, **kwargs) + self.Sigma(t, x, *args, **kwargs) @ self.score(t, x, *args, **kwargs)
-    
-    def g(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self._g(t, x, *args, **kwargs)
     
     
     

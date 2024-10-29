@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 @dataclass
 class SamplePath:
-    name: str = field(default="")
+    name: str = field(default="Default")
     path: Dict[str, jnp.ndarray] = field(default_factory=dict)
     
     def __init__(self, name: str = "", **kwargs):
@@ -16,7 +16,7 @@ class SamplePath:
             self.add(key, value)
 
     def __str__(self) -> str:
-        info = [f"{self.name} sample path contains {self.n_batches} samples，each sample runs {self.n_steps} steps:"]
+        info = [f"{self.name} sample path contains {self.n_samples} samples，each sample runs {self.n_steps} steps:"]
         info.extend(f"{key}.shape: {value.shape}" for key, value in self.path.items())
         return "\n ".join(info)
     
@@ -36,12 +36,11 @@ class SamplePath:
         return next(iter(self.path.values())).shape[1] if self.path else 0
         
     @property
-    def n_batches(self) -> int:
+    def n_samples(self) -> int:
         return next(iter(self.path.values())).shape[0] if self.path else 0
     
     def add(self, key: str, val: jnp.ndarray) -> None:
-        if not isinstance(val, jnp.ndarray):
-            raise ValueError(f"Only jnp.ndarray is allowed, but received {type(val)}")
+        assert isinstance(val, jnp.ndarray), f"Only jnp.ndarray is allowed, but received {type(val)}"
         self.path[key] = val
 
     def copy(self) -> "SamplePath":

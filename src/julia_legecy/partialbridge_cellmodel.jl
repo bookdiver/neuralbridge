@@ -62,7 +62,8 @@ end
 
 Random.seed!(42)
 Bridge.B(t, P::CellDiffusionAux) = @SMatrix [-1.0 0.0; 0.0 -1.0]
-Bridge.β(t, P::CellDiffusionAux) = ℝ{2}(1.0, 1.0)
+# Bridge.β(t, P::CellDiffusionAux) = ℝ{2}(1.0, 1.0)
+Bridge.β(t, P::CellDiffusionAux) = ℝ{2}(0.0, 0.0)
 
 Bridge.σ(t, x, P::CellDiffusionAux) = @SMatrix [P.σ 0.0; 0.0 P.σ]
 Bridge.σ(t, P::CellDiffusionAux) = @SMatrix [P.σ 0.0; 0.0 P.σ]

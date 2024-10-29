@@ -4,19 +4,19 @@ from functools import partial
 
 from ..stochastic_processes.bases import ContinuousTimeProcess
 from ..stochastic_processes.gbp import GuidedBridgeProcess
-from ..stochastic_processes.wiener import WienerProcess
-from ..solvers.sde import Euler
+from ..solvers.sde import Euler, WienerProcess
 
 class PreconditionedCrankNicolson:
     def __init__(self, 
                  x0: jnp.ndarray,
-                 xT: jnp.ndarray,
+                 v: jnp.ndarray,
                  ori_proc: ContinuousTimeProcess,
                  aux_proc: ContinuousTimeProcess,
-                 *,
+                 wiener: WienerProcess,
                  rho: float,
                  L0: jnp.ndarray,
                  Sigma0: jnp.ndarray,
+                 ode_solver_kernel: str = "dopri5",
                  rng_key: jax.Array = jax.random.PRNGKey(42),
                  n_batches: int = 1
                 ):
@@ -26,26 +26,22 @@ class PreconditionedCrankNicolson:
         
         self.dim = ori_proc.dim
         self.dtype = ori_proc.dtype
-        self.T = ori_proc.T
-        self.dt = ori_proc.dt
-        self.ts = ori_proc.ts
 
-        self.wiener = WienerProcess(self.dim, self.dtype, self.T, self.dt)
         self.rng_key = rng_key
-        key1, key2 = jax.random.split(rng_key)
-        self.W_sampler = self.wiener.path_sampler(key1, n_batches=self.n_batches)
-        self.Z_sampler = self.wiener.path_sampler(key2, n_batches=self.n_batches)
+        self.wiener = wiener
 
-        guided_process = GuidedBridgeProcess(ori_proc, aux_proc, L0, Sigma0, x0=x0, xT=xT)
-        self.solver = Euler(guided_process, self.wiener)
+        guided_process = GuidedBridgeProcess(
+            ori_proc, aux_proc, x0, v, L0, Sigma0, wiener.ts, ode_solver_kernel
+        )
+        self.solver = Euler(guided_process, wiener)
 
     @partial(jax.jit, static_argnums=(0,))
     def run_step(self, rng_key, path_X, ll_X, Ws):
         key1, key2 = jax.random.split(rng_key, 2)
-        Zs = self.wiener.sample_path(key1, ts=self.ts, n_batches=self.n_batches).xs
+        Zs = self.wiener.sample_path(key1, n_batches=self.n_batches).dxs
         Wos = self.rho * Ws + jnp.sqrt(1 - self.rho**2) * Zs
 
-        path_Xo = self.solver.solve(self.x0, rng_key=None, dWs=Wos, log_likelihood=True, n_batches=self.n_batches)
+        path_Xo = self.solver.solve(self.x0, rng_key=None, dWs=Wos, n_batches=self.n_batches)
         ll_Xo = path_Xo.log_likelihood
         log_ratio = ll_Xo - ll_X
 
@@ -64,8 +60,12 @@ class PreconditionedCrankNicolson:
             lambda x_new, x_old: update_field(accepted, x_new, x_old),
             path_Xo, path_X
         )
-        Ws_new = jax.vmap(lambda acc, w_new, w_old: jax.lax.cond(acc, lambda _: w_new, lambda _: w_old, None))(accepted, Wos, Ws)
-        ll_X_new = jax.vmap(lambda acc, ll_new, ll_old: jax.lax.cond(acc, lambda _: ll_new, lambda _: ll_old, None))(accepted, ll_Xo, ll_X)
+        Ws_new = jax.vmap(
+            lambda acc, w_new, w_old: jax.lax.cond(acc, lambda _: w_new, lambda _: w_old, None),
+        )(accepted, Wos, Ws)
+        ll_X_new = jax.vmap(
+            lambda acc, ll_new, ll_old: jax.lax.cond(acc, lambda _: ll_new, lambda _: ll_old, None)
+        )(accepted, ll_Xo, ll_X)
 
         return path_X_new, Ws_new, ll_X_new, accepted
 
@@ -73,8 +73,8 @@ class PreconditionedCrankNicolson:
     def run_loop(self, n_iters, init_state):
         def body_fun(i, state):
             path_X, Ws, ll_X, accepts, ll_Xs, rng_key = state
-            rng_key, subkey = jax.random.split(rng_key)
-            path_X, Ws, ll_X, accepted = self.run_step(subkey, path_X, ll_X, Ws)
+            rng_key, sub_key = jax.random.split(rng_key)
+            path_X, Ws, ll_X, accepted = self.run_step(sub_key, path_X, ll_X, Ws)
             accepts += accepted
             ll_Xs = ll_Xs.at[i+1].set(ll_X)
             return path_X, Ws, ll_X, accepts, ll_Xs, rng_key
@@ -83,8 +83,8 @@ class PreconditionedCrankNicolson:
 
     def run(self, n_iters: int, verbose: bool=True, log_every: int=1):
         key1, key2 = jax.random.split(self.rng_key)
-        Ws = self.wiener.sample_path(key1, ts=self.ts, n_batches=self.n_batches).xs
-        path_X = self.solver.solve(self.x0, rng_key=None, dWs=Ws, log_likelihood=True, n_batches=self.n_batches)
+        Ws = self.wiener.sample_path(key1, n_batches=self.n_batches).dxs
+        path_X = self.solver.solve(self.x0, rng_key=None, dWs=Ws, n_batches=self.n_batches)
         ll_X = path_X.log_likelihood
         ll_Xs = jnp.zeros((n_iters + 1, self.n_batches))
         ll_Xs = ll_Xs.at[0].set(ll_X)
