@@ -12,7 +12,7 @@ def plot_sample_path(
     alpha: float = 0.7,
     linewidth: float = 1.0,
     linestyle: str = "-",
-    label: str = None
+    labels: Tuple[str, ...] = None
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -24,15 +24,17 @@ def plot_sample_path(
     dim = xs.shape[-1]
     assert len(colors) == dim, "Number of colors must match the dimension of the sample path"
     for j in range(dim):
-        ax.plot(ts, xs[:, :, j].T, color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=label)
+        ax.plot(ts, xs[:, :, j].T, color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle)
     
-    if label is not None:
+    if labels is not None:
+        assert len(labels) == dim, "Number of labels must match the dimension of the sample path"
+        for j in range(dim):
+            ax.plot([], [], color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[j])
         ax.legend()
     
     ax.set_xlim(ts.min(), ts.max())
     ax.set_xlabel(r'$t$')
     ax.set_ylabel(r'$x$')
-    ax.set_title(sample_path.name)
     
     return ax
 
@@ -66,6 +68,5 @@ def plot_sample_path_histogram(
     
     ax.set_xlabel(r'$t$')
     ax.set_ylabel(r'$x$')
-    ax.set_title(sample_path.name)
     
     return ax

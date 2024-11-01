@@ -72,7 +72,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] - r @ r.T))
         return term1 + term2
 
-class MixedGuidedBridgeProcess(GuidedBridgeProcess):
+class NeuralGuidedBridgeProcess(GuidedBridgeProcess):
     
     def __init__(self, 
                  ori_proc: ContinuousTimeProcess, 

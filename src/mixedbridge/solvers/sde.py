@@ -105,7 +105,8 @@ class SDESolver(abc.ABC):
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, *args, **kwargs
     ):
         pass
-
+    
+    @partial(jax.jit, static_argnums=(0, 4))
     def solve(
         self, 
         x0: jnp.ndarray, 
@@ -126,7 +127,7 @@ class SDESolver(abc.ABC):
             x_next = self.step(x, t, dt, dW)
             G = self.sde.G(t, x) if log_likelihood else 0.0
             log_ll += G * dt
-            return (x_next, log_ll), (x_next, G)
+            return (x_next, log_ll), x_next
         
         if dWs is None:
             assert rng_key is not None, "Either dWs or rng_key must be provided"
@@ -138,7 +139,7 @@ class SDESolver(abc.ABC):
         else:
             assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
 
-        (_, final_log_ll), (xs, G_integrands) = jax.vmap(
+        (_, final_log_ll), xs = jax.vmap(
             lambda dW: jax.lax.scan(
                 scan_fn, 
                 init=(x0, 0.0), 
@@ -159,7 +160,6 @@ class SDESolver(abc.ABC):
             dWs=dWs,
             dts=self.dts,
             log_likelihood=final_log_ll,
-            dlog_ll=G_integrands
         )
 
 

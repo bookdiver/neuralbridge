@@ -115,15 +115,17 @@ class OUProcess(ContinuousTimeProcess):
 class OUAuxProcess(AuxiliaryProcess):
     
     def __init__(self,
+                 gamma: float,
                  sigma: float,
                  T: float = 1.0,
                  dim: int = 1,
                  dtype: jnp.dtype = jnp.float32):
         super().__init__(T, dim, dtype)
+        self.gamma = gamma
         self.sigma = sigma
         
     def beta(self, t: jnp.ndarray):
-        return jnp.zeros(self.dim, dtype=self.dtype)
+        return - self.gamma * jnp.ones(self.dim, dtype=self.dtype)
 
     def B(self, t: jnp.ndarray):
         return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
