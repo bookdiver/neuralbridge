@@ -3,22 +3,24 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mixedbridge"
+name = "neuralbridge"
 version = "0.1.0"
 description = "A description of your project"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 dependencies = [
     "flax",
     "optax",
     "matplotlib",
     "jupyter",
     "pytest",
+    "tqdm",
+    "einops",
 ]
 
 [project.optional-dependencies]
 cpu = ["jax[cpu]", "jaxlib"]
 gpu = ["jax[cuda]", "jaxlib"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["neuralbridge"]

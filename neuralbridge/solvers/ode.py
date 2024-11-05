@@ -35,27 +35,28 @@ class BackwardODE:
     def solve_step(self, solver_state: namedtuple, t_args: tuple) -> namedtuple:
         t, dt = t_args
         L = self.kernel(
-            lambda t, x: x @ self.B(t), t, solver_state.L, dt
+            lambda t, x: - x @ self.B(t), t, solver_state.L, dt
         )
         M_diag = self.kernel(
-            lambda t, x: L @ self.Sigma(t) @ L.T, t, solver_state.M_diag, dt
+            lambda t, x: - L @ self.Sigma(t) @ L.T, t, solver_state.M_diag, dt
         )
         mu = self.kernel(
-            lambda t, x: L @ self.beta(t), t, solver_state.mu, dt
+            lambda t, x: - L @ self.beta(t), t, solver_state.mu, dt
         )
         M = jnp.linalg.inv(M_diag)
         new_state = SolverState(L=L, M_diag=M_diag, mu=mu)
         return new_state, (L, M, mu)
-
-    def solve(
-        self, reverse_ts: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        dts = jnp.abs(jnp.diff(reverse_ts))
+    
+    def solve(self, ts: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        dts = jnp.diff(ts)
         init_state = SolverState(L=self.L0, M_diag=self.Sigma0, mu=0.0 * self.L0[:, 0])
-        _, (Ls, Ms, mus) = jax.lax.scan(self.solve_step, init_state, (reverse_ts[1:], dts))
-
-        return Ls[::-1, ...], Ms[::-1, ...], mus[::-1, ...]
-        # return Ls, Ms, mus
+        _, (Ls, Ms, mus) = jax.lax.scan(
+            f=self.solve_step, 
+            init=init_state, 
+            xs=(ts[1:], dts),
+            reverse=True
+        )
+        return Ls, Ms, mus
 
 
 def kernel_r3(

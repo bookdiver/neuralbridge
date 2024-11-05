@@ -160,12 +160,13 @@ cython_debug/
 #.idea/
 
 # Some other folders and files
-*.png
 .DS_Store
-doc
+*.png
 *.pdf
 *.png
 *.jpg
 *.jpeg
 *.gif
 *.svg
+doc
+assets/ckpts

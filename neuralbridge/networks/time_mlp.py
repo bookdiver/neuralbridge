@@ -10,9 +10,9 @@ class TimeEmbedding(nn.Module):
 
     @nn.compact
     def __call__(self, t):
-        """ t shape: (batch,) """
+        """ t shape: (batch, 1) """
         pe = jnp.empty((len(t), self.t_emb_dim))
-        factor = self.scaling * jnp.einsum('i,j->ij', 
+        factor = self.scaling * jnp.einsum('ij,k->ik', 
                                            t, 
                                            jnp.exp(jnp.arange(0, self.t_emb_dim, 2) 
                                                    * -(jnp.log(self.max_period) / self.t_emb_dim)))

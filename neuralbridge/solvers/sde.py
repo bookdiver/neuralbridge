@@ -95,11 +95,15 @@ class SDESolver(abc.ABC):
     @property
     def ts(self):
         return self.wiener.ts
-
+    
+    @property
+    def dt(self):
+        return self.wiener.dt
+    
     @property
     def dts(self):
         return self.wiener.dts
-
+    
     @abc.abstractmethod
     def step(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, *args, **kwargs
@@ -117,17 +121,17 @@ class SDESolver(abc.ABC):
     ) -> SamplePath:
         
         if hasattr(self.sde, "G"):
-            log_likelihood = True
+            record_ll_ratio = True
         else:
-            log_likelihood = False
+            record_ll_ratio = False
         
         def scan_fn(carry: tuple, val: tuple) -> tuple:
-            x, log_ll = carry
+            x, log_ll_ratio = carry
             t, dt, dW = val
             x_next = self.step(x, t, dt, dW)
-            G = self.sde.G(t, x) if log_likelihood else 0.0
-            log_ll += G * dt
-            return (x_next, log_ll), x_next
+            G = self.sde.G(t, x) if record_ll_ratio else 0.0
+            log_ll_ratio += G * dt
+            return (x_next, log_ll_ratio), x_next
         
         if dWs is None:
             assert rng_key is not None, "Either dWs or rng_key must be provided"
@@ -139,7 +143,7 @@ class SDESolver(abc.ABC):
         else:
             assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
 
-        (_, final_log_ll), xs = jax.vmap(
+        (_, final_log_ll_ratio), xs = jax.vmap(
             lambda dW: jax.lax.scan(
                 scan_fn, 
                 init=(x0, 0.0), 
@@ -159,7 +163,7 @@ class SDESolver(abc.ABC):
             ts=self.ts, 
             dWs=dWs,
             dts=self.dts,
-            log_likelihood=final_log_ll,
+            log_ll_ratio=final_log_ll_ratio,
         )
 
 

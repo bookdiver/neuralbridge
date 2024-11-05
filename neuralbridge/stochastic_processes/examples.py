@@ -5,6 +5,7 @@ from .bases import (
     ContinuousTimeProcess,
     AuxiliaryProcess
 )
+
 class BrownianProcess(ContinuousTimeProcess):
     
     def __init__(self,
@@ -142,19 +143,23 @@ class OUBridgeProcess(ContinuousTimeProcess):
     def __init__(self,
                  gamma: float,
                  sigma: float,
-                 xT: jnp.ndarray,
+                 score_fn: Callable[[float, jnp.ndarray], jnp.ndarray] | None = None,
+                 v: jnp.ndarray | None = None,
                  T: float = 1.0,
                  dim: int = 1,
                  dtype: jnp.dtype = jnp.float32):
         super().__init__(T, dim, dtype)
         self.gamma = gamma
         self.sigma = sigma
-        self.xT = xT
+        self.score_fn = score_fn
+        self.v = v
         
     def f(self, t: jnp.ndarray, x: jnp.ndarray):
-        return - self.gamma * x + \
-            4.0 * self.gamma**2 * jnp.exp(- self.gamma * (self.T - t)) * \
-                (x * jnp.exp(- self.gamma * (self.T - t)) - self.xT) / (jnp.exp(-2.0 * self.gamma * (self.T - t)) - 1.0)
+        if self.score_fn is not None:
+            return - self.gamma * x + self.Sigma(t, x) @ self.score_fn(t, x)
+        else:
+            assert self.v is not None, "v must be provided"
+            return - self.gamma * (self.v / jnp.sinh(-self.gamma * (self.T - t + 1e-10)) - x / jnp.tanh(-self.gamma * (self.T - t + 1e-10)))
                 
     def g(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)

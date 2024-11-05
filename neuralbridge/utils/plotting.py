@@ -1,33 +1,44 @@
-from typing import Tuple, List
+from typing import Union, Sequence
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mixedbridge.utils.sample_path import SamplePath
+from .sample_path import SamplePath
 
 def plot_sample_path(
     sample_path: SamplePath, 
     plot_object: str = "xs",
     ax: plt.Axes = None, 
-    colors: Tuple[str, ...] = ("grey",), 
+    color: Union[str, Sequence[str]] = "grey",
     alpha: float = 0.7,
     linewidth: float = 1.0,
     linestyle: str = "-",
-    labels: Tuple[str, ...] = None
+    label: Union[str, Sequence[str]] = None
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
     else:
         fig = ax.figure
-    n_samples = sample_path.n_samples
+        
     xs = sample_path.path[plot_object]
     ts = sample_path.ts[len(sample_path.ts) - xs.shape[1]:]
     dim = xs.shape[-1]
-    assert len(colors) == dim, "Number of colors must match the dimension of the sample path"
+    
+    if isinstance(color, str):
+        colors = [color] * dim
+    else:
+        assert len(color) == dim, "Number of colors must match the dimension of the sample path"
+        colors = color
+    
     for j in range(dim):
         ax.plot(ts, xs[:, :, j].T, color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle)
     
-    if labels is not None:
-        assert len(labels) == dim, "Number of labels must match the dimension of the sample path"
+    if label is not None:
+        if isinstance(label, str):
+            labels = [label] * dim
+        else:
+            assert len(label) == dim, "Number of labels must match the dimension of the sample path"
+            labels = label
+        
         for j in range(dim):
             ax.plot([], [], color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[j])
         ax.legend()

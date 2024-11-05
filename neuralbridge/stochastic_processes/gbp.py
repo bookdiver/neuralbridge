@@ -11,7 +11,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     def __init__(self, 
                  ori_proc: ContinuousTimeProcess, 
                  aux_proc: AuxiliaryProcess,
-                 x0: jnp.ndarray,
+                 u: jnp.ndarray,
                  v: jnp.ndarray,
                  L0: jnp.ndarray,
                  Sigma0: jnp.ndarray,
@@ -19,12 +19,12 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
                  ode_solver_kernel: str = "dopri5"
                  ):
         super().__init__(ori_proc.T, ori_proc.dim, ori_proc.dtype)
-        assert x0.shape == v.shape
+        assert u.shape == v.shape
         
         self.ori_proc = ori_proc
         self.aux_proc = aux_proc
 
-        self.x0 = x0
+        self.u = u
         self.v = v
 
         self.backward_ode = BackwardODE(
@@ -75,16 +75,31 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
 class NeuralGuidedBridgeProcess(GuidedBridgeProcess):
     
     def __init__(self, 
-                 ori_proc: ContinuousTimeProcess, 
-                 aux_proc: AuxiliaryProcess,
-                 L0: jnp.ndarray,
-                 Sigma0: jnp.ndarray,
-                 x0: jnp.ndarray,
-                 v: jnp.ndarray,
-                 ts: jnp.ndarray,
-                 nu: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+                 guided_process: GuidedBridgeProcess | None = None,
+                 *,  # Force keyword arguments after guided_process
+                 ori_proc: ContinuousTimeProcess | None = None, 
+                 aux_proc: AuxiliaryProcess | None = None,
+                 L0: jnp.ndarray | None = None,
+                 Sigma0: jnp.ndarray | None = None,
+                 u: jnp.ndarray | None = None,
+                 v: jnp.ndarray | None = None,
+                 ts: jnp.ndarray | None = None,
+                 nu: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] = lambda: None,
                  ):
-        super().__init__(ori_proc=ori_proc, aux_proc=aux_proc, L0=L0, Sigma0=Sigma0, x0=x0, v=v, ts=ts)
+        if guided_process is not None:
+            # Initialize from existing GuidedBridgeProcess
+            self.__dict__.update(guided_process.__dict__)
+        else:
+            # Initialize from individual components
+            super().__init__(
+                ori_proc=ori_proc,
+                aux_proc=aux_proc,
+                L0=L0,
+                Sigma0=Sigma0,
+                u=u,
+                v=v,
+                ts=ts
+            )
         self.nu = nu
 
     def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
