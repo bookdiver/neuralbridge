@@ -1,10 +1,6 @@
-from functools import partial
-from typing import Callable
-import jax
-import jax.numpy as jnp
-
-from .bases import ContinuousTimeProcess, AuxiliaryProcess
-from ..solvers.ode import BackwardODE
+from neuralbridge.setups import *
+from neuralbridge.stochastic_processes.bases import ContinuousTimeProcess, AuxiliaryProcess
+from neuralbridge.solvers.ode import BackwardODE
 
 class GuidedBridgeProcess(ContinuousTimeProcess):
 
@@ -65,12 +61,17 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         Ls, Ms, mus = self.backward_ode.solve(reverse_ts)
         return Ls, Ms, mus
     
-    def G(self, t: float, x: jnp.ndarray) -> float:
+    def G(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
         r = self.r(t, x)
         term1 = jnp.inner(self.ori_proc.f(t, x) - self.aux_proc.f(t, x), r)
         A = self.ori_proc.Sigma(t, x) - self.aux_proc.Sigma(t, x)
         term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] - r @ r.T))
         return term1 + term2
+    
+    def G_max(self, t: float, x: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
+        term1 = jnp.linalg.norm(self.ori_proc.f(t, x) - self.aux_proc.f(t, x))
+        term2 = 1.0 + jnp.linalg.norm(x - v) / (self.T - t + 1e-10)
+        return term1 * term2
 
 class NeuralGuidedBridgeProcess(GuidedBridgeProcess):
     

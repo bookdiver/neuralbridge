@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Union
 
 import jax
 import jax.numpy as jnp
@@ -20,10 +20,22 @@ class SamplePath:
         info.extend(f"{key}.shape: {value.shape}" for key, value in self.path.items())
         return "\n ".join(info)
     
-    def __getitem__(self, idx: int) -> Dict[str, jnp.ndarray]:
-        if idx >= self.n_steps:
-            raise IndexError(f"Index out of range: {idx} >= {self.n_steps}")
-        return {key: value[:, idx] for key, value in self.path.items()}
+    def __getitem__(self, idx: Union[int, slice]) -> "SamplePath":
+        if isinstance(idx, slice):
+            start, stop, step = idx.indices(self.n_samples)
+            return SamplePath(self.name, **{
+                key: value[start:stop:step, ...] if len(value.shape) > 1 else value 
+                for key, value in self.path.items()
+            })
+        else:
+            if idx < 0:
+                idx += self.n_samples
+            if idx >= self.n_samples or idx < 0:
+                raise IndexError(f"Index out of range: {idx} >= {self.n_samples}")
+            return SamplePath(self.name, **{
+                key: value[idx:idx+1, ...] if len(value.shape) > 1 else value
+                for key, value in self.path.items()
+            })
     
     def __getattr__(self, key: str) -> jnp.ndarray:
         try:

@@ -15,7 +15,6 @@ class ScoreNetSmall(nn.Module):
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
         
-        t = jnp.expand_dims(t, axis=-1)
         x = jnp.concatenate([t, x], axis=-1)
         for hidden_dim in self.hidden_dims:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
@@ -35,6 +34,7 @@ class ScoreNet(nn.Module):
     t_emb_max_period: float = 100.0
     t_emb_scaling: float = 100.0
     dtype: jnp.dtype = jnp.float32
+    
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
         t_emb = TimeEmbedding(
