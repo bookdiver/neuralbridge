@@ -4,7 +4,7 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "julia.environmentPath": "/Users/vbd402/mixedbridge",
+    "julia.environmentPath": "/Users/vbd402/.julia/environments/Bridge",
     "cSpell.words": [
         "mixedbridge"
     ]

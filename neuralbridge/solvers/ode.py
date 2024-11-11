@@ -1,5 +1,5 @@
 from neuralbridge.setups import *
-from neuralbridge.stochastic_processes.bases import AuxiliaryProcess
+from neuralbridge.stochastic_processes.unconds import AuxiliaryProcess
 
 SolverState = namedtuple("SolverState", ["L", "M_diag", "mu"])
 

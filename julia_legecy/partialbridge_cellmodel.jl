@@ -1,6 +1,6 @@
 # reminder, to type H*, do H\^+
-cd("/Users/vbd402/Documents/Projects/mixedbridge/")
-outdir="/Users/vbd402/Documents/Projects/mixedbridge/notebooks/cell_model_runs/"
+cd("/Users/vbd402/Documents/Projects/neuralbridge/")
+outdir="/Users/vbd402/Documents/Projects/neuralbridge/assets/julia/cell_model/"
 
 using Bridge, StaticArrays, Distributions
 using Test, Statistics, Random, LinearAlgebra
@@ -78,53 +78,67 @@ Po = νHparam ? Bridge.PartialBridgeνH(tt, P, Pt, L, ℝ{m}(v),ϵ, Σ) : Bridge
 
 
 ####################### MH algorithm ###################
-W = sample(tt, Wiener{ℝ{2}}())
-X = solve(Euler(), x0, W, P)
-Xo = copy(X)
-solve!(Euler(), Xo, x0, W, Po)
-solve!(Euler(), X, x0, W, Po)
+n_runs = 5
+all_XX = []
+all_lls = []
+global acc = 0
+global ll = 0
 
-ll = llikelihood(Bridge.LeftRule(), X, Po,skip=sk)
+for run in 1:n_runs
+    W = sample(tt, Wiener{ℝ{2}}())
+    X = solve(Euler(), x0, W, P)
+    Xo = copy(X)
+    solve!(Euler(), Xo, x0, W, Po)
+    solve!(Euler(), X, x0, W, Po)
 
-# further initialisation
-Wo = copy(W)
-W2 = copy(W)
-XX = Any[]
-if 0 in subsamples
-    push!(XX, copy(X))
-end
+    global ll = llikelihood(Bridge.LeftRule(), X, Po,skip=sk)
 
-acc = 0
-lls = [ll]
-
-for iter in 1:iterations
-    # Proposal
-    sample!(W2, Wiener{ℝ{2}}())
-    
-    Wo.yy .= ρ*W.yy + sqrt(1-ρ^2)*W2.yy
-    solve!(Euler(), Xo, x0, Wo, Po)
-
-    llo = llikelihood(Bridge.LeftRule(), Xo, Po,skip=sk)
-    print("ll $ll $llo, diff_ll: ",round(llo-ll,digits=3))
-
-    if log(rand()) <= llo - ll
-        X.yy .= Xo.yy
-        W.yy .= Wo.yy
-        global ll = llo
-        print("✓")
-        global acc +=1
-    end
-    push!(lls, ll)
-    println()
-    if iter in subsamples
+    # further initialisation
+    Wo = copy(W)
+    W2 = copy(W)
+    XX = Any[]
+    if 0 in subsamples
         push!(XX, copy(X))
     end
+
+    global acc = 0
+    lls = [ll]
+
+    for iter in 1:iterations
+        # Proposal
+        sample!(W2, Wiener{ℝ{2}}())
+        
+        Wo.yy .= ρ*W.yy + sqrt(1-ρ^2)*W2.yy
+        solve!(Euler(), Xo, x0, Wo, Po)
+
+        llo = llikelihood(Bridge.LeftRule(), Xo, Po,skip=sk)
+        # print("ll $ll $llo, diff_ll: ",round(llo-ll,digits=3))
+
+        if log(rand()) <= llo - ll
+            X.yy .= Xo.yy
+            W.yy .= Wo.yy
+            global ll = llo
+            # print("✓")
+            global acc +=1
+        end
+        push!(lls, ll)
+        # println()
+        if iter in subsamples
+            push!(XX, copy(X))
+        end
+    end
+    push!(all_XX, XX)
+    push!(all_lls, lls)
+    println("Run $run completed with acceptance rate: $(100*round(acc/iterations,digits=2))%")
 end
 
 @info "Done."*"\x7"^6
 
-# plot loglikelihood over iterations
-plot(lls)
+# Plot loglikelihoods for all chains
+p1 = plot(title="Log likelihood vs. Iterations", xlabel="Iterations", ylabel="Log likelihood")
+for (i, lls) in enumerate(all_lls)
+    plot!(p1, lls, label="Run $i")
+end
 
 # write mcmc iterates to csv file
 
@@ -133,8 +147,6 @@ plot(lls)
 # its = hcat(iterates...)'
 # outdf = DataFrame(iteration=its[:,1], time=its[:,2], component=its[:,3], value=its[:,4])
 # CSV.write(fn, outdf)
-
-# ave_acc_perc = 100*round(acc/iterations,digits=2)
 
 # # write info to txt file
 # fn = outdir*"info.txt"
@@ -153,10 +165,28 @@ plot(lls)
 # close(f)
 
 
-# println("Average acceptance percentage: ",ave_acc_perc,"\n")
 # println("Parametrisation of nu and H? ", νHparam)
 
 
-# # plots of forward simulation of the process
-# W = sample(tt, Wiener{ℝ{2}}()); X = solve(Euler(), x0, W, P)
-# p1 = plot(X.tt, first.(X.yy)); p2 = plot(X.tt, last.(X.yy)); plot(p1, p2)
+# Plot trajectories from all chains
+p2 = plot(title="Trajectories", xlabel="Time", ylabel="Xₜ")
+colors = [:blue, :red, :green, :purple, :orange]  # Add more colors if needed
+
+for (run_idx, XX) in enumerate(all_XX)
+    # Plot first iteration
+    # X_first = first(XX)
+    # plot!(p2, X_first.tt, first.(X_first.yy), label="", color=colors[run_idx], alpha=0.3)
+    # plot!(p2, X_first.tt, last.(X_first.yy), label="", color=colors[run_idx], alpha=0.3)
+    
+    # Plot last iteration
+    X_last = last(XX)
+    plot!(p2, X_last.tt, first.(X_last.yy), label="", color=colors[run_idx], alpha=0.3)
+    plot!(p2, X_last.tt, last.(X_last.yy), label="", color=colors[run_idx], alpha=0.3)
+end
+
+# Add legend entries for each chain
+for i in 1:n_runs
+    plot!(p2, [], [], color=colors[i], label="Run $i")
+end
+
+plot(p1, p2, layout=(2,1), size=(1000,800))

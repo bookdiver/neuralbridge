@@ -2,7 +2,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from ..stochastic_processes.bases import ContinuousTimeProcess
+from ..stochastic_processes.unconds import ContinuousTimeProcess
 from .sample_path import SamplePath
 
 @jax.jit

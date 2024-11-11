@@ -1,8 +1,8 @@
 from neuralbridge.setups import *
 from neuralbridge.utils.sample_path import SamplePath
-from neuralbridge.stochastic_processes.bases import ContinuousTimeProcess
+from neuralbridge.stochastic_processes.unconds import ContinuousTimeProcess
 
-SolverState = namedtuple("SolverState", ["x", "log_ll", "log_ll_max"])
+SolverState = namedtuple("SolverState", ["x", "log_ll"])
 
 class WienerProcess:
 
@@ -107,15 +107,14 @@ class SDESolver(abc.ABC):
     ):
         pass
     
-    @partial(jax.jit, static_argnums=(0, 4, 6))
+    @partial(jax.jit, static_argnums=(0, 4))
     def solve(
         self, 
         x0: jnp.ndarray, 
         rng_key: Optional[jax.Array] = None, 
         dWs: Optional[jnp.ndarray] = None, 
-        batch_size: int = 1,
-        enforce_end_point: jnp.ndarray = None,
-        bound_log_ll: bool = False
+        batch_size: Optional[int] = 1,
+        enforce_end_point: Optional[jnp.ndarray] = None,
     ) -> SamplePath:
         
         if hasattr(self.sde, "G"):
@@ -123,9 +122,6 @@ class SDESolver(abc.ABC):
         else:
             record_ll = False
             
-        if bound_log_ll:
-            assert enforce_end_point is not None, "End point v must be provided when computing G_max"
-        
         def scan_fn(solver_state: namedtuple, t_W_args: tuple) -> tuple:
             t, dt, dW = t_W_args
             x = self.step(
@@ -135,10 +131,11 @@ class SDESolver(abc.ABC):
                 dW=dW
             )
             G = self.sde.G(t, x) if record_ll else 0.0
-            G_max = self.sde.G_max(t, x, enforce_end_point) if bound_log_ll else 0.0
             log_ll = solver_state.log_ll + G * dt
-            log_ll_max = solver_state.log_ll_max + G_max * dt
-            new_state = SolverState(x=x, log_ll=log_ll, log_ll_max=log_ll_max)
+            new_state = solver_state._replace(
+                x=x, 
+                log_ll=log_ll, 
+            )
             return new_state, x
         
         if dWs is None:
@@ -151,7 +148,7 @@ class SDESolver(abc.ABC):
         else:
             assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
 
-        init_state = SolverState(x=x0, log_ll=0.0, log_ll_max=0.0)
+        init_state = SolverState(x=x0, log_ll=0.0)
         final_state, xs = jax.vmap(
             lambda dW: jax.lax.scan(
                 scan_fn, 
@@ -173,8 +170,7 @@ class SDESolver(abc.ABC):
             ts=self.ts,
             dWs=dWs,
             dts=self.dts,
-            log_ll=final_state.log_ll,
-            log_ll_max=final_state.log_ll_max
+            log_ll=final_state.log_ll
         )
 
 

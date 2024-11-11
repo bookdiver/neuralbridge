@@ -1,5 +1,5 @@
 from neuralbridge.setups import *
-from neuralbridge.stochastic_processes.bases import (
+from neuralbridge.stochastic_processes.unconds import (
     ContinuousTimeProcess,
     AuxiliaryProcess
 )
