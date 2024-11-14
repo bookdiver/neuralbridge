@@ -108,39 +108,29 @@ class NeuralBridge:
     
     def initialize_path_solver(self, wiener_proc: WienerProcess) -> None:
         self.wiener_proc = wiener_proc
-        # self.path_solver = Euler(
-        #     sde=self.neural_bridge,
-        #     wiener=wiener_proc
-        # )
         self.path_solver = Euler(
-            sde=self.guided_bridge,
+            sde=self.neural_bridge,
             wiener=wiener_proc
         )
     
     @partial(jax.jit, static_argnums=(0,))
     def sample_batch_path(self, variables: Any, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        # path = self.path_solver.solve_with_variables(
-        #     x0=u,
-        #     variables=variables,
-        #     dWs=dWs,
-        #     batch_size=self.batch_size,
-        #     enforce_end_point=v,
-        #     training=True,
-        #     mutable=["batch_stats"]
-        # )
-        path = self.path_solver.solve(
+        path = self.path_solver.solve_with_variables(
             x0=u,
+            variables=variables,
             dWs=dWs,
             batch_size=self.batch_size,
             enforce_end_point=v,
+            training=True,
+            mutable=["batch_stats"]
         )
-        ts, xs = path.ts, path.xs
+        ts, xs, log_ll = path.ts, path.xs, path.log_ll
         ts = repeat(ts, "t -> b t 1", b=self.batch_size)
-        return ts, xs
+        return ts, xs, log_ll
     
     def _compute_loss(self, params, batch_stats, state, batch: Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]) -> Tuple[jnp.ndarray, dict]:
         variables = {"params": params, "batch_stats": batch_stats}
-        ts, xs = batch
+        ts, xs, log_ll = batch
         ts_flatten = rearrange(ts, "b t 1 -> (b t) 1")
         xs_flatten = rearrange(xs, "b t d -> (b t) d")  
         nus, updated_batch_stats = state.apply_fn(
@@ -151,12 +141,7 @@ class NeuralBridge:
             mutable=["batch_stats"]
         )
         nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
-        Gs = jax.vmap(
-            jax.vmap(
-                self.guided_bridge.G
-            )
-        )(ts.squeeze(), xs)
-        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1) - Gs, axis=1) * self.path_solver.dt
+        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll
         loss = jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
     
@@ -276,22 +261,16 @@ class NeuralBridge:
     
     def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_end_point: Optional[jnp.ndarray] = None) -> SamplePath:
         dWs = self.wiener_proc.sample_path(rng_key, batch_size=batch_size).dxs
-        # path = self.path_solver.solve_with_variables(
-        #     x0=x0,
-        #     variables={
-        #         "params": self.state.params,
-        #         "batch_stats": self.state.batch_stats,
-        #     },
-        #     dWs=dWs,
-        #     batch_size=batch_size,
-        #     enforce_end_point=enforce_end_point,
-        #     training=False,
-        #     mutable=False
-        # )
-        path = self.path_solver.solve(
+        path = self.path_solver.solve_with_variables(
             x0=x0,
+            variables={
+                "params": self.state.params,
+                "batch_stats": self.state.batch_stats,
+            },
             dWs=dWs,
             batch_size=batch_size,
             enforce_end_point=enforce_end_point,
+            training=False,
+            mutable=False
         )
         return path

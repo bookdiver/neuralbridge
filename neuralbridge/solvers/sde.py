@@ -110,7 +110,7 @@ class SDESolver(abc.ABC):
     @abc.abstractmethod
     def step_with_variables(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, 
-        *, training: bool = False, mutable: Optional[Union[Tuple[str, ...], bool]] = None
+        *, training: bool = False, mutable: Optional[Union[str, Tuple[str, ...], bool]] = False
     ):
         pass
     
