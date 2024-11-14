@@ -38,7 +38,7 @@ class ReversedBridgeProcess(ContinuousTimeProcess):
         
     def f(self, t: float, z: jnp.ndarray) -> jnp.ndarray:
         assert self.score_fn is not None, f"Score function is not provided"
-        return self.ori_proc.f(self.T - t, z) + self.Sigma(self.T - t, z) @ self.score_fn(self.T - t, z)    # !!! NOTE: right now the Jacobian is not considered yet.
+        return - self.ori_proc.f(self.T - t, z) + self.Sigma(self.T - t, z) @ self.score_fn(self.T - t, z)    # !!! NOTE: right now the Jacobian is not considered yet.
     
     def g(self, t: float, z: jnp.ndarray) -> jnp.ndarray:
         return self.ori_proc.g(self.T - t, z)

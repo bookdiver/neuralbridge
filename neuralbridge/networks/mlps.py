@@ -1,16 +1,28 @@
-from typing import Sequence
-
-import jax
-import jax.numpy as jnp
 from flax import linen as nn
 
-from .time_mlp import TimeEmbedding, TimeEmbeddingMLP
+from neuralbridge.setups import *
+from neuralbridge.networks.time_embedding import TimeEmbedding, TimeEmbeddingMLP
 
-class ScoreNetSmall(nn.Module):
+def get_activation(activation: str) -> Callable:
+    if activation == "relu":
+        return nn.relu
+    elif activation == "tanh":
+        return nn.tanh
+    elif activation == "gelu":
+        return nn.gelu
+    elif activation == "silu":
+        return nn.silu
+    elif activation == "leaky_relu":
+        return nn.leaky_relu
+    else:
+        raise ValueError(f"Activation {activation} not supported")
+
+class MLPSmall(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: str | None = None
-    dtype: jnp.dtype = jnp.float32
+    norm: Optional[str] = None
+    activation: Optional[str] = "tanh"
+    dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
@@ -22,18 +34,19 @@ class ScoreNetSmall(nn.Module):
                 x = nn.BatchNorm(use_running_average=not training)(x)
             elif self.norm == "layer":
                 x = nn.LayerNorm()(x)
-            x = nn.swish(x)
+            x = get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x
 
-class ScoreNet(nn.Module):
+class MLP(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: str | None = None
+    norm: Optional[str] = None
+    activation: Optional[str] = "tanh"
     t_emb_dim: int = 32
     t_emb_max_period: float = 100.0
     t_emb_scaling: float = 100.0
-    dtype: jnp.dtype = jnp.float32
+    dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
@@ -53,6 +66,6 @@ class ScoreNet(nn.Module):
                 x = nn.BatchNorm(use_running_average=not training)(x)
             elif self.norm == "layer":
                 x = nn.LayerNorm()(x)
-            x = nn.tanh(x)
+            x = get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x

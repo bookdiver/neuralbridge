@@ -130,7 +130,7 @@ class ScoreMatchingReversedBridge:
         inv_Sigmas = jax.vmap(
             lambda t, x: self.forward_proc.inv_Sigma(t, x)
         )(ts[:-1], xs[:-1])
-        grads = - jnp.einsum('t i j, t i -> t i', inv_Sigmas, euler) / self.path_solver.dt
+        grads = - jnp.einsum('t i j, t j -> t i', inv_Sigmas, euler) / self.path_solver.dt
         return grads, Sigmas
 
     def _compute_loss(self, params: jnp.ndarray, batch_stats: dict, batch: Tuple[jnp.ndarray, jnp.ndarray]) -> Tuple[jnp.ndarray, dict]:
@@ -153,7 +153,7 @@ class ScoreMatchingReversedBridge:
         loss = scores - grads
         loss = jnp.einsum('b t i, b t i j, b t j -> b t', loss, Sigmas, loss)
         loss = jnp.sum(loss, axis=1) * self.path_solver.dt
-        loss = jnp.mean(loss, axis=0)
+        loss = 0.5 * jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
 
     @partial(jax.jit, static_argnums=(0,))

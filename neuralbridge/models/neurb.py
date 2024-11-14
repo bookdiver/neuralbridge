@@ -135,8 +135,9 @@ class NeuralBridge:
         nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
         sto_int = jnp.sum(jnp.einsum("b t i, b t i -> b t", nus, dWs), axis=1)
         det_int = 0.5 * jnp.sum(jnp.sum(jnp.square(nus), axis=-1), axis=1) * self.path_solver.dt
-        normalized_ll = jax.nn.softmax(log_ll)
-        loss = normalized_ll * (-sto_int + det_int)
+        # normalized_ll = jax.nn.softmax(log_ll)
+        
+        loss = jnp.exp(log_ll) * (-sto_int + det_int)
         loss = jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
     
