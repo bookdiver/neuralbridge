@@ -6,9 +6,10 @@ from tqdm.auto import tqdm
 
 from neuralbridge.setups import *
 from neuralbridge.stochastic_processes.conds import (
-    GuidedBridgeProcess, NeuralGuidedBridgeProcess
+    GuidedBridgeProcess, NeuralBridgeProcess
 )
 from neuralbridge.solvers.sde import WienerProcess, Euler
+from neuralbridge.utils.sample_path import SamplePath
 
 @struct.dataclass
 class TrainState(train_state.TrainState):
@@ -30,11 +31,13 @@ class TrainState(train_state.TrainState):
         
 class NeuralBridge:
     guided_bridge: GuidedBridgeProcess
+    neural_bridge: NeuralBridgeProcess
     neural_net: nn.Module
     train_config: dict
     
     def __init__(self, guided_bridge: GuidedBridgeProcess, neural_net: nn.Module, train_config: dict):
         self.guided_bridge = guided_bridge
+        self.neural_bridge = NeuralBridgeProcess(guided_bridge, neural_net)
         self.neural_net = neural_net
         
         # Training parameters
@@ -49,12 +52,13 @@ class NeuralBridge:
         self.warmup_steps = train_config.get("warmup_steps", 0)
         self.clip_norm = train_config.get("clip_norm", None)
         
+        self.wiener_proc = None
         self.path_solver = None
         self._initialize_model()
 
     def _initialize_model(self) -> None:
         self.init_rng_key = jax.random.PRNGKey(self.seed)
-        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.guided_bridge.dim))
+        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.neural_bridge.dim))
         variables = self.neural_net.init(
             self.init_rng_key,
             dummy_t,
@@ -103,28 +107,42 @@ class NeuralBridge:
         )
     
     def initialize_path_solver(self, wiener_proc: WienerProcess) -> None:
+        self.wiener_proc = wiener_proc
+        # self.path_solver = Euler(
+        #     sde=self.neural_bridge,
+        #     wiener=wiener_proc
+        # )
         self.path_solver = Euler(
             sde=self.guided_bridge,
             wiener=wiener_proc
         )
-        
-    def sample_batch_path(self, rng_key: jax.Array, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    
+    @partial(jax.jit, static_argnums=(0,))
+    def sample_batch_path(self, variables: Any, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        # path = self.path_solver.solve_with_variables(
+        #     x0=u,
+        #     variables=variables,
+        #     dWs=dWs,
+        #     batch_size=self.batch_size,
+        #     enforce_end_point=v,
+        #     training=True,
+        #     mutable=["batch_stats"]
+        # )
         path = self.path_solver.solve(
             x0=u,
-            rng_key=rng_key,
+            dWs=dWs,
             batch_size=self.batch_size,
-            enforce_end_point=v
+            enforce_end_point=v,
         )
-        ts, xs, dWs, log_ll = path.ts, path.xs, path.dWs, path.log_ll
-        ts = repeat(ts, "t -> b t", b=self.batch_size)
-        ts = rearrange(ts, "b t -> b t 1")
-        return ts, xs, dWs, log_ll
+        ts, xs = path.ts, path.xs
+        ts = repeat(ts, "t -> b t 1", b=self.batch_size)
+        return ts, xs
     
     def _compute_loss(self, params, batch_stats, state, batch: Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]) -> Tuple[jnp.ndarray, dict]:
         variables = {"params": params, "batch_stats": batch_stats}
-        ts, xs, dWs, log_ll = batch
-        ts_flatten = rearrange(ts[:, :-1, :], "b t 1 -> (b t) 1")
-        xs_flatten = rearrange(xs[:, :-1, :], "b t d -> (b t) d")   # NOTE: use the LEFT POINT to evaluate the Ito integral!
+        ts, xs = batch
+        ts_flatten = rearrange(ts, "b t 1 -> (b t) 1")
+        xs_flatten = rearrange(xs, "b t d -> (b t) d")  
         nus, updated_batch_stats = state.apply_fn(
             variables,
             t=ts_flatten,
@@ -133,10 +151,12 @@ class NeuralBridge:
             mutable=["batch_stats"]
         )
         nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
-        sto_int = jnp.sum(jnp.einsum("b t i, b t i -> b t", nus, dWs), axis=1)
-        det_int = 0.5 * jnp.sum(jnp.sum(jnp.square(nus), axis=-1), axis=1) * self.path_solver.dt
-        normalized_ll = jax.nn.softmax(log_ll)
-        loss = normalized_ll * (-sto_int + det_int)
+        Gs = jax.vmap(
+            jax.vmap(
+                self.guided_bridge.G
+            )
+        )(ts.squeeze(), xs)
+        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1) - Gs, axis=1) * self.path_solver.dt
         loss = jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
     
@@ -179,7 +199,16 @@ class NeuralBridge:
             iter_bar = tqdm(range(self.n_iters), desc=f"Epoch {epoch}", unit="iter", leave=False)
             for _ in iter_bar:
                 
-                batch = self.sample_batch_path(self.state.rng_key, u, v)
+                dWs = self.wiener_proc.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
+                batch = self.sample_batch_path(
+                    variables={
+                        "params": self.state.params,
+                        "batch_stats": self.state.batch_stats,
+                    },
+                    dWs=dWs, 
+                    u=u, 
+                    v=v
+                )
                 self.state, loss = self._train_step(self.state, batch)
                 
                 losses.append(loss)
@@ -245,27 +274,24 @@ class NeuralBridge:
         logging.info(f"Checkpoint loaded from {absolute_save_dir}")
         return None
     
-    def inference(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
-        t = rearrange(jnp.array([t]), "t -> 1 t")
-        x = rearrange(x, "d -> 1 d")
-        output = self.state.apply_fn(
-            variables={
-                "params": self.state.params,
-                "batch_stats": self.state.batch_stats
-            },
-            t=t,
-            x=x,
-            training=False,
-            mutable=False
+    def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_end_point: Optional[jnp.ndarray] = None) -> SamplePath:
+        dWs = self.wiener_proc.sample_path(rng_key, batch_size=batch_size).dxs
+        # path = self.path_solver.solve_with_variables(
+        #     x0=x0,
+        #     variables={
+        #         "params": self.state.params,
+        #         "batch_stats": self.state.batch_stats,
+        #     },
+        #     dWs=dWs,
+        #     batch_size=batch_size,
+        #     enforce_end_point=enforce_end_point,
+        #     training=False,
+        #     mutable=False
+        # )
+        path = self.path_solver.solve(
+            x0=x0,
+            dWs=dWs,
+            batch_size=batch_size,
+            enforce_end_point=enforce_end_point,
         )
-        output = rearrange(output, "1 d -> d")
-        return output
-    
-    def build_neural_bridge(self) -> NeuralGuidedBridgeProcess:
-        nu = lambda t, x: self.inference(t, x)
-        return NeuralGuidedBridgeProcess(
-            guided_process=self.guided_bridge,
-            nu=nu
-        )
-    
-        
+        return path

@@ -1,17 +1,29 @@
-from typing import Sequence
-
-import jax
-import jax.numpy as jnp
 from flax import linen as nn
 
-from .time_mlp import TimeEmbedding, TimeEmbeddingMLP
+from neuralbridge.setups import *
+from neuralbridge.networks.time_mlp import TimeEmbedding
+
+def _get_activation(activation: str) -> nn.activation:
+    if activation == "swish":
+        return nn.swish
+    elif activation == "relu":
+        return nn.relu
+    elif activation == "gelu":
+        return nn.gelu
+    elif activation == "leaky_relu":
+        return nn.leaky_relu
+    elif activation == "tanh":
+        return nn.tanh
+    else:
+        raise ValueError(f"Activation {activation} not supported")
 
 class ScoreNetSmall(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: str | None = None
+    norm: Optional[str] = None
+    activation: Optional[str] = "swish"
     dtype: jnp.dtype = jnp.float32
-    
+
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
         
@@ -22,17 +34,18 @@ class ScoreNetSmall(nn.Module):
                 x = nn.BatchNorm(use_running_average=not training)(x)
             elif self.norm == "layer":
                 x = nn.LayerNorm()(x)
-            x = nn.swish(x)
+            x = _get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x
 
 class ScoreNet(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: str | None = None
+    norm: Optional[str] = None
     t_emb_dim: int = 32
     t_emb_max_period: float = 100.0
     t_emb_scaling: float = 100.0
+    activation: Optional[str] = "tanh"
     dtype: jnp.dtype = jnp.float32
     
     @nn.compact
@@ -53,6 +66,6 @@ class ScoreNet(nn.Module):
                 x = nn.BatchNorm(use_running_average=not training)(x)
             elif self.norm == "layer":
                 x = nn.LayerNorm()(x)
-            x = nn.tanh(x)
+            x = _get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x

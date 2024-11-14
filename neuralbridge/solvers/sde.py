@@ -107,6 +107,13 @@ class SDESolver(abc.ABC):
     ):
         pass
     
+    @abc.abstractmethod
+    def step_with_variables(
+        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, 
+        *, training: bool = False, mutable: Optional[Union[Tuple[str, ...], bool]] = None
+    ):
+        pass
+    
     @partial(jax.jit, static_argnums=(0, 4))
     def solve(
         self, 
@@ -172,25 +179,119 @@ class SDESolver(abc.ABC):
             dts=self.dts,
             log_ll=final_state.log_ll
         )
+        
+    def solve_with_variables(
+        self,
+        x0: jnp.ndarray,
+        variables: Any,
+        dWs: jnp.ndarray,
+        batch_size: Optional[int] = 1,
+        enforce_end_point: Optional[jnp.ndarray] = None,
+        *,
+        training: bool = False,
+        mutable: Optional[Union[List[str], bool]] = False,
+    ) -> SamplePath:
+        if hasattr(self.sde, "G"):
+            record_ll = True
+        else:
+            record_ll = False
+
+        def scan_fn(solver_state: namedtuple, t_W_args: tuple) -> tuple:
+            t, dt, dW = t_W_args
+            x = self.step_with_variables(
+                x=solver_state.x, 
+                t=t, 
+                dt=dt, 
+                dW=dW,
+                variables=variables,
+                training=training,
+                mutable=mutable
+            )
+            G = self.sde.G(t, x) if record_ll else 0.0
+            log_ll = solver_state.log_ll + G * dt
+            new_state = solver_state._replace(
+                x=x, 
+                log_ll=log_ll, 
+            )
+            return new_state, x
+        
+        assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
+
+        init_state = SolverState(x=x0, log_ll=0.0)
+        final_state, xs = jax.vmap(
+            lambda dW: jax.lax.scan(
+                scan_fn, 
+                init=init_state, 
+                xs=(self.ts[:-1], self.dts, dW)
+            ),
+            in_axes=0
+        )(dWs)
+        x0_expanded = jnp.expand_dims(x0, axis=(0, 1))  
+        x0_tiled = jnp.tile(x0_expanded, (batch_size, 1, 1)) 
+        xs = jnp.concatenate([x0_tiled, xs], axis=1) 
+        
+        if enforce_end_point is not None:
+            xs = xs.at[:, -1, :].set(enforce_end_point[None, ...])
+            
+        return SamplePath(
+            name=f"{self.sde.__class__.__name__} sample path",
+            xs=xs, 
+            ts=self.ts,
+            dWs=dWs,
+            dts=self.dts,
+            log_ll=final_state.log_ll
+        )
 
 
 class Euler(SDESolver):
     @partial(jax.jit, static_argnums=(0,))
     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
-        drift     = self.sde.f(t, x)
+        drift = self.sde.f(t, x)
         diffusion = self.sde.g(t, x)
         return x + drift * dt + diffusion @ dW
     
-class ModifiedEuler(SDESolver):
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
-        drift = self.sde.f(t, x)
-        next_t = t + dt
-        scaling = jnp.sqrt((self.T - next_t) / (self.T - t))
-        diffusion = scaling * self.sde.g(t, x)
+    def step_with_variables(
+        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, 
+        *, training: bool = False, mutable: Optional[Union[List[str], bool]] = None
+    ) -> jnp.ndarray:
+        drift = self.sde.f(t, x, variables, training=training, mutable=mutable)
+        diffusion = self.sde.g(t, x)
         return x + drift * dt + diffusion @ dW
+    
+# class ModifiedEuler(SDESolver):
+#     # !!! NOTE: May not work now
+#     @partial(jax.jit, static_argnums=(0,))
+#     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
+#         drift = self.sde.f(t, x)
+#         next_t = t + dt
+#         scaling = jnp.sqrt((self.T - next_t) / (self.T - t))
+#         diffusion = scaling * self.sde.g(t, x)
+#         return x + drift * dt + diffusion @ dW
+    
+#     @partial(
+#         jax.jit,
+#         static_argnames=(
+#             'self',
+#             'training',
+#             'mutable'
+#         )
+#     )
+#     def step_with_variables(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, *, training: bool = False, mutable: Optional[Union[Tuple[str, ...], bool]] = None) -> jnp.ndarray:
+#         nn_kwargs = {"training": training}
+#         if mutable is not None:
+#             nn_kwargs["mutable"] = list(mutable) if isinstance(mutable, tuple) else mutable
+            
+#         drift = self.sde.f(t, x, variables, **nn_kwargs)
+#         next_t = t + dt
+#         scaling = jnp.sqrt((self.T - next_t) / (self.T - t))
+#         diffusion = scaling * self.sde.g(t, x, variables, **nn_kwargs)
+#         return x + drift * dt + diffusion @ dW
 
-class RungeKutta(SDESolver):
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
-        raise NotImplementedError("Runge-Kutta method not implemented")
+# class RungeKutta(SDESolver):
+#     @partial(jax.jit, static_argnums=(0,))
+#     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
+#         raise NotImplementedError("Runge-Kutta method not implemented")
+    
+#     @partial(jax.jit, static_argnums=(0,))
+#     def step_with_variables(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, **nn_forward_kwargs) -> jnp.ndarray:
+#         raise NotImplementedError("Runge-Kutta method not implemented") 
