@@ -16,16 +16,16 @@ class BrownianProcess(ContinuousTimeProcess):
         self.gamma = gamma
         self.sigma = sigma
 
-    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, **kwargs):
         return self.gamma * jnp.ones(self.dim, dtype=self.dtype)
 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
 class BrownianAuxProcess(AuxiliaryProcess):
@@ -40,19 +40,19 @@ class BrownianAuxProcess(AuxiliaryProcess):
         self.gamma = gamma
         self.sigma = sigma
         
-    def beta(self, t: jnp.ndarray):
+    def beta(self, t: jnp.ndarray, *args, **kwargs):
         return self.gamma * jnp.ones(self.dim, dtype=self.dtype)
 
-    def B(self, t: jnp.ndarray):
+    def B(self, t: jnp.ndarray, *args, **kwargs):
         return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
 
 class BrownianBridgeProcess(ContinuousTimeProcess):
@@ -71,20 +71,20 @@ class BrownianBridgeProcess(ContinuousTimeProcess):
         self.v = v
         self.score_fn = score_fn
         
-    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         if self.score_fn is not None:
-            return self.gamma * jnp.ones(self.dim, dtype=self.dtype) + self.Sigma(t, x) @ self.score_fn(t, x)
+            return self.gamma * jnp.ones(self.dim, dtype=self.dtype) + self.Sigma(t, x, *args, **kwargs) @ self.score_fn(t, x, *args, **kwargs)
         else:
             assert self.v is not None, "v must be provided"
             return self.gamma * jnp.ones(self.dim, dtype=self.dtype) + (self.v - x - self.gamma * (self.T - t)) / (self.T - t + 1e-10)
 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
 class OUProcess(ContinuousTimeProcess):
@@ -99,16 +99,16 @@ class OUProcess(ContinuousTimeProcess):
         self.gamma = gamma
         self.sigma = sigma
         
-    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return - self.gamma * x
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
 class OUAuxProcess(AuxiliaryProcess):
@@ -123,16 +123,16 @@ class OUAuxProcess(AuxiliaryProcess):
         self.gamma = gamma
         self.sigma = sigma
         
-    def beta(self, t: jnp.ndarray):
+    def beta(self, t: jnp.ndarray, *args, **kwargs):
         return - self.gamma * jnp.ones(self.dim, dtype=self.dtype)
 
-    def B(self, t: jnp.ndarray):
+    def B(self, t: jnp.ndarray, *args, **kwargs):
         return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
     
@@ -152,20 +152,20 @@ class OUBridgeProcess(ContinuousTimeProcess):
         self.score_fn = score_fn
         self.v = v
         
-    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         if self.score_fn is not None:
-            return - self.gamma * x + self.Sigma(t, x) @ self.score_fn(t, x)
+            return - self.gamma * x + self.Sigma(t, x, *args, **kwargs) @ self.score_fn(t, x, *args, **kwargs)
         else:
             assert self.v is not None, "v must be provided"
             return - self.gamma * (self.v / jnp.sinh(-self.gamma * (self.T - t + 1e-10)) - x / jnp.tanh(-self.gamma * (self.T - t + 1e-10)))
                 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
 
@@ -181,7 +181,7 @@ class CellDiffusionProcess(ContinuousTimeProcess):
         self.alpha = alpha
         self.sigma = sigma
 
-    def f(self, t: jnp.ndarray, x: jnp.ndarray):
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         def u(x, alpha):
             return x**4 / (alpha + x**4)
         
@@ -189,13 +189,13 @@ class CellDiffusionProcess(ContinuousTimeProcess):
                           u(x[1], self.alpha) + 1.0 - u(x[0], self.alpha) - x[1]],
                           dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
     
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return 1.0 / self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
     
 class CellDiffusionAuxProcess(AuxiliaryProcess):
@@ -210,16 +210,16 @@ class CellDiffusionAuxProcess(AuxiliaryProcess):
         self.alpha = alpha
         self.sigma = sigma
 
-    def beta(self, t: jnp.ndarray):
+    def beta(self, t: jnp.ndarray, *args, **kwargs):
         return jnp.ones(self.dim, dtype=self.dtype)
 
-    def B(self, t: jnp.ndarray):
+    def B(self, t: jnp.ndarray, *args, **kwargs):
         return - 1.0 * jnp.eye(self.dim, dtype=self.dtype)
 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
 
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
 
 
@@ -240,10 +240,10 @@ class LandmarkLagrangianProcess(ContinuousTimeProcess):
         dim = int(n_landmarks * m_landmarks) if dim is None else dim
         super().__init__(T, dim, dtype)
     
-    def f(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs) -> jnp.ndarray:
         return jnp.zeros(self.dim, dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs) -> jnp.ndarray:
         x_landmarks = rearrange(x, "(n m) -> n m", n=self.n_landmarks, m=self.m_landmarks)
         kernel_fn = lambda dist_mat: self.k_alpha * jnp.exp(-jnp.linalg.norm(dist_mat, axis=-1)**2 / self.k_sigma**2)
         dist_mat = x_landmarks[:, None, :] - x_landmarks[None, :, :]
@@ -279,12 +279,12 @@ class LandmarkLagrangianAuxProcess(AuxiliaryProcess):
         Q0_half = rearrange(Q0_half, "i k j l -> (i k) (j l)")
         self.g0 = Q0_half
         
-    def beta(self, t: jnp.ndarray):
+    def beta(self, t: jnp.ndarray, *args, **kwargs):
         return jnp.zeros(self.dim, dtype=self.dtype)
     
-    def B(self, t: jnp.ndarray):
+    def B(self, t: jnp.ndarray, *args, **kwargs):
         return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
         assert self.g0 is not None, "g0 must be initialized using .init_g(x0)"
         return self.g0

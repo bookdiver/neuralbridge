@@ -52,7 +52,6 @@ class SamplePath:
         return next(iter(self.path.values())).shape[0] if self.path else 0
     
     def add(self, key: str, val: jnp.ndarray) -> None:
-        assert isinstance(val, jnp.ndarray), f"Only jnp.ndarray is allowed, but received {type(val)}"
         self.path[key] = val
 
     def copy(self) -> "SamplePath":

@@ -11,22 +11,22 @@ class ContinuousTimeProcess(abc.ABC):
         self.dtype = dtype 
     
     @abc.abstractmethod
-    def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
+    def f(self, t: float, x: jnp.ndarray, **kwargs):
         pass
     
     @abc.abstractmethod
-    def g(self, t: float, x: jnp.ndarray, *args, **kwargs):
+    def g(self, t: float, x: jnp.ndarray, **kwargs):
         pass
 
-    def Sigma(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self.g(t, x, *args, **kwargs) @ self.g(t, x, *args, **kwargs).T
+    def Sigma(self, t: float, x: jnp.ndarray, **kwargs):
+        return self.g(t, x, **kwargs) @ self.g(t, x, **kwargs).T
     
-    def inv_Sigma(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return jnp.linalg.inv(self.Sigma(t, x, *args, **kwargs))
+    def inv_Sigma(self, t: float, x: jnp.ndarray, **kwargs):
+        return jnp.linalg.inv(self.Sigma(t, x, **kwargs))
     
-    def div_Sigma(self, t: float, x: jnp.ndarray, *args, **kwargs):
+    def div_Sigma(self, t: float, x: jnp.ndarray, **kwargs):
         _jacobian = jnp.stack(
-            [jax.jacfwd(self.Sigma, argnums=1)(t, x[i], *args, **kwargs)
+            [jax.jacfwd(self.Sigma, argnums=1)(t, x[i], **kwargs)
              for i in range(self.dim)],
             axis=0
         )
@@ -41,18 +41,18 @@ class AuxiliaryProcess(ContinuousTimeProcess):
         super().__init__(T, dim, dtype)
 
     @abc.abstractmethod
-    def beta(self, t: float, *args, **kwargs):
+    def beta(self, t: float, **kwargs):
         pass
 
     @abc.abstractmethod
-    def B(self, t: float, *args, **kwargs):
+    def B(self, t: float, **kwargs):
         pass
 
-    def f(self, t: float, x: jnp.ndarray, *args, **kwargs):
-        return self.beta(t, *args, **kwargs) + self.B(t, *args, **kwargs) @ x
+    def f(self, t: float, x: jnp.ndarray, **kwargs):
+        return self.beta(t, **kwargs) + self.B(t, **kwargs) @ x
 
     @abc.abstractmethod
-    def g(self, t: float, x: jnp.ndarray, *args, **kwargs):
+    def g(self, t: float, x: jnp.ndarray, **kwargs):
         pass 
     
     
