@@ -113,11 +113,30 @@ class NeuralBridge:
             wiener=wiener_proc
         )
     
-    @partial(jax.jit, static_argnums=(0,))
-    def sample_batch_path(self, variables: Any, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    # @partial(jax.jit, static_argnums=(0,))
+    # def _sample_batch_path(self, variables: dict, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    #     path = self.path_solver.solve_with_variables(
+    #         x0=u,
+    #         variables=variables,
+    #         dWs=dWs,
+    #         batch_size=self.batch_size,
+    #         enforce_end_point=v,
+    #         training=True,
+    #         mutable=["batch_stats"]
+    #     )
+    #     ts, xs, log_ll = path.ts, path.xs, path.log_ll
+    #     ts = repeat(ts, "t -> b t 1", b=self.batch_size)
+    #     return ts, xs, log_ll
+    
+    @partial(jax.jit, static_argnums=(0))
+    def _compute_loss(self, params, batch_stats, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
+        # Generate paths as part of the loss computation
         path = self.path_solver.solve_with_variables(
             x0=u,
-            variables=variables,
+            variables={
+                "params": params,
+                "batch_stats": batch_stats
+            },
             dWs=dWs,
             batch_size=self.batch_size,
             enforce_end_point=v,
@@ -126,15 +145,14 @@ class NeuralBridge:
         )
         ts, xs, log_ll = path.ts, path.xs, path.log_ll
         ts = repeat(ts, "t -> b t 1", b=self.batch_size)
-        return ts, xs, log_ll
-    
-    def _compute_loss(self, params, batch_stats, state, batch: Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]) -> Tuple[jnp.ndarray, dict]:
-        variables = {"params": params, "batch_stats": batch_stats}
-        ts, xs, log_ll = batch
-        ts_flatten = rearrange(ts, "b t 1 -> (b t) 1")
-        xs_flatten = rearrange(xs, "b t d -> (b t) d")  
+        
+        ts_flatten = rearrange(ts[:, :-1, :], "b t 1 -> (b t) 1")
+        xs_flatten = rearrange(xs[:, :-1, :], "b t d -> (b t) d")  
         nus, updated_batch_stats = state.apply_fn(
-            variables,
+            variables = {
+                "params": params,
+                "batch_stats": batch_stats
+            },
             t=ts_flatten,
             x=xs_flatten,
             training=True,
@@ -145,11 +163,11 @@ class NeuralBridge:
         loss = jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
     
-    @partial(jax.jit, static_argnums=(0,))
-    def _train_step(self, state, batch) -> Tuple[TrainState, jnp.ndarray]:
+    @partial(jax.jit, static_argnums=(0))
+    def _train_step(self, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[TrainState, jnp.ndarray]:
         
         def loss_fn(params):
-            loss, updated_batch_stats = self._compute_loss(params, state.batch_stats, state, batch)
+            loss, updated_batch_stats = self._compute_loss(params, state.batch_stats, state, dWs, u, v)
             return loss, updated_batch_stats
         
         (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
@@ -167,12 +185,12 @@ class NeuralBridge:
         # !!! NOTE: Right now, the resume mode is not working
         elif mode == "resume":
             assert epoch is not None, "epoch must be specified for resume mode"
-            self.load_checkpoint(epoch)
+            self._load_checkpoint(epoch)
             start_epoch = epoch + 1  # Start from the next epoch
             logging.info(f"Resuming training from epoch {epoch}")
             
         elif mode == "pretrained":
-            self.load_checkpoint(epoch)
+            self._load_checkpoint(epoch)
             logging.info(f"Loading pretrained model from the last epoch")
             return None
         
@@ -185,16 +203,16 @@ class NeuralBridge:
             for _ in iter_bar:
                 
                 dWs = self.wiener_proc.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
-                batch = self.sample_batch_path(
-                    variables={
-                        "params": self.state.params,
-                        "batch_stats": self.state.batch_stats,
-                    },
-                    dWs=dWs, 
-                    u=u, 
-                    v=v
-                )
-                self.state, loss = self._train_step(self.state, batch)
+                # batch = self._sample_batch_path(
+                #     variables={
+                #         "params": self.state.params,
+                #         "batch_stats": self.state.batch_stats
+                #     },
+                #     dWs=dWs, 
+                #     u=u, 
+                #     v=v
+                # )
+                self.state, loss = self._train_step(self.state, dWs, u, v)
                 
                 losses.append(loss)
                 epoch_losses.append(loss)
@@ -204,11 +222,11 @@ class NeuralBridge:
             epoch_bar.set_postfix({"avg_loss": f"{epoch_avg_loss:>7.5f}"})
             logging.info(f"Epoch {epoch} average loss: {epoch_avg_loss:>7.5f}")
 
-            self.save_checkpoint(epoch) 
+            self._save_checkpoint(epoch) 
             
         return jnp.array(losses)
     
-    def save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
+    def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         if not os.path.exists(absolute_save_dir):
@@ -235,7 +253,7 @@ class NeuralBridge:
             logging.error(f"Error saving checkpoint: {e}")
             return e
 
-    def load_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
+    def _load_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         ckpt = checkpoints.restore_checkpoint(
@@ -265,7 +283,7 @@ class NeuralBridge:
             x0=x0,
             variables={
                 "params": self.state.params,
-                "batch_stats": self.state.batch_stats,
+                "batch_stats": self.state.batch_stats
             },
             dWs=dWs,
             batch_size=batch_size,

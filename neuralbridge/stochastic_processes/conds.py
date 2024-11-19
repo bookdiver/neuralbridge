@@ -81,6 +81,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         self.Hs = jax.vmap(lambda L, M: L.T @ M @ L)(self.Ls, self.Ms)
     
     def _find_t(self, t: float):
+        t = t.squeeze() if t.ndim > 0 else t
         return jnp.searchsorted(self.ts, t)
 
     @partial(jax.jit, static_argnums=(0,))
@@ -126,13 +127,13 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
         self.neural_net = neural_net
         
     def nu(
-        self, t: float, x: jnp.ndarray, variables: Any, 
+        self, t: float, x: jnp.ndarray, variables: Any,
         *, training: bool = False, mutable: Optional[Union[str, List[str], bool]] = False
     ) -> jnp.ndarray:
         t = rearrange(jnp.array([t]), "t -> 1 t")
         x = rearrange(x, "d -> 1 d")
         output, *_ = self.neural_net.apply(
-            variables, 
+            variables=variables,
             t=t, 
             x=x, 
             training=training,
@@ -144,7 +145,7 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
             return rearrange(output, "1 d -> d")
 
     def f(
-        self, t: float, x: jnp.ndarray, variables: Any, 
+        self, t: float, x: jnp.ndarray, variables: Any,
         training: bool = False, mutable: Optional[Union[str, List[str], bool]] = False
     ) -> jnp.ndarray:
         return self.guided_process.f(t, x)  \
@@ -152,3 +153,6 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
                
     def g(self, t: float, x: jnp.ndarray):
         return self.guided_process.g(t, x)
+    
+    def G(self, t: float, x: jnp.ndarray):
+        return self.guided_process.G(t, x)

@@ -108,8 +108,9 @@ class SDESolver(abc.ABC):
         pass
     
     @abc.abstractmethod
+    @partial(jax.grad, argnums=5)
     def step_with_variables(
-        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, 
+        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any,
         *, training: bool = False, mutable: Optional[Union[str, Tuple[str, ...], bool]] = False
     ):
         pass
@@ -251,7 +252,7 @@ class Euler(SDESolver):
         return x + drift * dt + diffusion @ dW
     
     def step_with_variables(
-        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, 
+        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any,
         *, training: bool = False, mutable: Optional[Union[List[str], bool]] = None
     ) -> jnp.ndarray:
         drift = self.sde.f(t, x, variables, training=training, mutable=mutable)
