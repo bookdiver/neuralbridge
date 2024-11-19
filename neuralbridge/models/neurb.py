@@ -146,8 +146,8 @@ class NeuralBridge:
         ts, xs, log_ll = path.ts, path.xs, path.log_ll
         ts = repeat(ts, "t -> b t 1", b=self.batch_size)
         
-        ts_flatten = rearrange(ts[:, :-1, :], "b t 1 -> (b t) 1")
-        xs_flatten = rearrange(xs[:, :-1, :], "b t d -> (b t) d")  
+        ts_flatten = rearrange(ts[:, 1:, :], "b t 1 -> (b t) 1")
+        xs_flatten = rearrange(xs[:, 1:, :], "b t d -> (b t) d")  
         nus, updated_batch_stats = state.apply_fn(
             variables = {
                 "params": params,
