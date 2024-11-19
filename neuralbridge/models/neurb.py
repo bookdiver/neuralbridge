@@ -113,24 +113,8 @@ class NeuralBridge:
             wiener=wiener_proc
         )
     
-    # @partial(jax.jit, static_argnums=(0,))
-    # def _sample_batch_path(self, variables: dict, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    #     path = self.path_solver.solve_with_variables(
-    #         x0=u,
-    #         variables=variables,
-    #         dWs=dWs,
-    #         batch_size=self.batch_size,
-    #         enforce_end_point=v,
-    #         training=True,
-    #         mutable=["batch_stats"]
-    #     )
-    #     ts, xs, log_ll = path.ts, path.xs, path.log_ll
-    #     ts = repeat(ts, "t -> b t 1", b=self.batch_size)
-    #     return ts, xs, log_ll
-    
     @partial(jax.jit, static_argnums=(0))
     def _compute_loss(self, params, batch_stats, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
-        # Generate paths as part of the loss computation
         path = self.path_solver.solve_with_variables(
             x0=u,
             variables={
@@ -203,15 +187,6 @@ class NeuralBridge:
             for _ in iter_bar:
                 
                 dWs = self.wiener_proc.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
-                # batch = self._sample_batch_path(
-                #     variables={
-                #         "params": self.state.params,
-                #         "batch_stats": self.state.batch_stats
-                #     },
-                #     dWs=dWs, 
-                #     u=u, 
-                #     v=v
-                # )
                 self.state, loss = self._train_step(self.state, dWs, u, v)
                 
                 losses.append(loss)

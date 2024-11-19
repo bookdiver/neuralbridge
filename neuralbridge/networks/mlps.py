@@ -14,6 +14,8 @@ def get_activation(activation: str) -> Callable:
         return nn.silu
     elif activation == "leaky_relu":
         return nn.leaky_relu
+    elif activation == "lipswish":
+        return lambda x: 0.909 * nn.swish(x)
     else:
         raise ValueError(f"Activation {activation} not supported")
 
