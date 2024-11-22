@@ -4,6 +4,8 @@ from neuralbridge.stochastic_processes.unconds import (
     AuxiliaryProcess
 )
 
+
+
 class BrownianProcess(ContinuousTimeProcess):
     
     def __init__(self,

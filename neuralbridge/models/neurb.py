@@ -143,7 +143,7 @@ class NeuralBridge:
             mutable=["batch_stats"]
         )
         nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
-        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll
+        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll # (b, )
         loss = jnp.mean(loss, axis=0)
         return loss, updated_batch_stats
     
@@ -155,6 +155,12 @@ class NeuralBridge:
             return loss, updated_batch_stats
         
         (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+        
+        grad_norms = jax.tree_util.tree_map(lambda x: jnp.linalg.norm(x), grads)
+        grad_norms_array = jnp.array(jax.tree_util.tree_leaves(grad_norms))
+        avg_grad_norm = jnp.mean(grad_norms_array)
+        jax.debug.print("Average gradient norm: {x}", x=avg_grad_norm)
+        
         state = state.apply_gradients(grads=grads)
         state = state.replace(batch_stats=aux["batch_stats"])
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
