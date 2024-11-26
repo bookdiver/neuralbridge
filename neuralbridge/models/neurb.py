@@ -156,11 +156,6 @@ class NeuralBridge:
         
         (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
         
-        grad_norms = jax.tree_util.tree_map(lambda x: jnp.linalg.norm(x), grads)
-        grad_norms_array = jnp.array(jax.tree_util.tree_leaves(grad_norms))
-        avg_grad_norm = jnp.mean(grad_norms_array)
-        jax.debug.print("Average gradient norm: {x}", x=avg_grad_norm)
-        
         state = state.apply_gradients(grads=grads)
         state = state.replace(batch_stats=aux["batch_stats"])
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])

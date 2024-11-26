@@ -3,7 +3,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib.collections import LineCollection
 
-plt.style.use("dark_background")
+import scienceplots
+
+plt.style.use(["science", "no-latex", "grid"])
 
 from neuralbridge.setups import *
 from neuralbridge.utils.sample_path import SamplePath
@@ -11,7 +13,7 @@ from neuralbridge.utils.sample_path import SamplePath
 def plot_sample_path(
     sample_path: SamplePath, 
     ax: Optional[plt.Axes] = None, 
-    color: Optional[Union[str, Sequence[str]]] = "grey",
+    color: Optional[Union[str, Sequence[str]]] = None,
     alpha: Optional[float] = 0.7,
     linewidth: Optional[float] = 1.0,
     linestyle: Optional[str] = "-",
@@ -28,7 +30,9 @@ def plot_sample_path(
     ts = sample_path.ts[len(sample_path.ts) - xs.shape[1]:]
     dim = xs.shape[-1]
     
-    if isinstance(color, str):
+    if color is None:
+        colors = [f'C{i}' for i in range(dim)] 
+    elif isinstance(color, str):
         colors = [color] * dim
     else:
         assert len(color) == dim, "Number of colors must match the dimension of the sample path"
@@ -47,6 +51,77 @@ def plot_sample_path(
         for j in range(dim):
             ax.plot([], [], color=colors[j], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[j])
         ax.legend()
+    
+    ax.set_xlim(ts.min(), ts.max())
+    ax.set_xlabel(r'$t$')
+    ax.set_ylabel(r'$x$')
+    
+    if title is not None:
+        ax.set_title(title)
+    
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300)
+    
+    return ax
+
+def plot_mcmc_sample_path(
+    mcmc_sample_path_logs: List[SamplePath], 
+    plot_dim: Optional[Union[int, Sequence[int]]] = None,
+    ax: Optional[plt.Axes] = None, 
+    cmap: Optional[Union[str, Sequence[str]]] = "virdis",
+    alpha: Optional[float] = 0.7,
+    linewidth: Optional[float] = 1.0,
+    linestyle: Optional[str] = "-",
+    label: Optional[Union[str, Sequence[str]]] = None,
+    title: Optional[Union[str, None]] = None,
+    n_iters: Optional[int] = 1000,
+    save_path: Optional[Union[str, None]] = None,
+):
+    if ax is None:
+        fig, ax = plt.subplots(layout="constrained")
+    else:
+        fig = ax.figure
+        
+    xs = jnp.stack([sample_path.path.xs for sample_path in mcmc_sample_path_logs])
+    ts = mcmc_sample_path_logs[0].path.ts[len(mcmc_sample_path_logs[0].path.ts) - xs.shape[2]:]
+    n_logs = xs.shape[0]
+    
+    if plot_dim is None:
+        dims_to_plot = range(xs.shape[-1])
+        dim = xs.shape[-1]
+    else:
+        dims_to_plot = [plot_dim] if isinstance(plot_dim, int) else plot_dim
+        dim = len(dims_to_plot)
+    
+    if isinstance(cmap, str):
+        cmap = [plt.get_cmap(cmap)] * dim
+    else:
+        assert len(cmap) == dim, "Number of colors must match the dimension of the sample path"
+        cmap = [plt.get_cmap(c) for c in cmap]
+    
+    colors = [cmap[k](jnp.linspace(0, 1, n_logs)) for k in range(len(cmap))]
+    for k, d in enumerate(dims_to_plot):
+        for i in range(n_logs):
+            ax.plot(ts, xs[i, :, :, d].T, color=colors[k][i], alpha=alpha, linewidth=linewidth, linestyle=linestyle)
+    
+    if label is not None:
+        if isinstance(label, str):
+            labels = [label] * dim
+        else:
+            assert len(label) == dim, "Number of labels must match the dimension of the sample path"
+            labels = label
+        
+        for k in range(len(dims_to_plot)):
+            ax.plot([], [], color=colors[k][-1], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[k])
+        ax.legend()
+    
+    # Add colorbars for each dimension
+    for k, d in enumerate(dims_to_plot):
+        norm = plt.Normalize(0, n_iters)
+        sm = plt.cm.ScalarMappable(cmap=cmap[k], norm=norm)
+        sm.set_array([])
+        label_text = f"Component {d+1}" if label is None else labels[k]
+        plt.colorbar(sm, ax=ax, label=f"{label_text} iteration", pad=0.01 + 0.05*k)
     
     ax.set_xlim(ts.min(), ts.max())
     ax.set_xlabel(r'$t$')
@@ -98,6 +173,7 @@ def plot_landmark_sample_path(
     ax: Optional[plt.Axes] = None,
     cmap: Optional[str] = "viridis",
     alpha: Optional[float] = 0.7,
+    scatter_size: Optional[float] = 50,
     linewidth: Optional[float] = 1.0,
     title: Optional[str] = None,
 ):
@@ -120,8 +196,8 @@ def plot_landmark_sample_path(
         x0s = xs_landmarks[:, 0, :, 0]
         xTs = xs_landmarks[:, -1, :, 0]
         for i in range(xs_landmarks.shape[0]):
-            ax.scatter(jnp.zeros(xs_landmarks.shape[2]), x0s[i], color=colors[0], marker="o", s=50)
-            ax.scatter(jnp.ones(xs_landmarks.shape[2]) * ts[-1], xTs[i], color=colors[-1], marker="*", s=50)
+            ax.scatter(jnp.zeros(xs_landmarks.shape[2]), x0s[i], color=colors[0], marker="o", s=scatter_size)
+            ax.scatter(jnp.ones(xs_landmarks.shape[2]) * ts[-1], xTs[i], color=colors[-1], marker="*", s=scatter_size)
         
         # Add 1D colored trajectories
         for i in range(xs_landmarks.shape[0]):
@@ -147,8 +223,8 @@ def plot_landmark_sample_path(
         fig.colorbar(lc, ax=ax, label=r'$time$', pad=0)
     
     elif m_landmarks == 2:
-        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=50)
-        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=50)
+        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=scatter_size)
+        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=scatter_size)
         
         # Plot trajectories for each sample
         for i in range(xs_landmarks.shape[0]):
@@ -175,8 +251,8 @@ def plot_landmark_sample_path(
         fig.colorbar(lc, ax=ax, label=r'$time$', pad=0)
     
     elif m_landmarks == 3:
-        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=50)
-        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=50)
+        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=scatter_size)
+        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=scatter_size)
         
         # Plot trajectories for each sample
         for i in range(xs_landmarks.shape[0]):

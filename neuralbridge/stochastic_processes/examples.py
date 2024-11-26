@@ -4,8 +4,6 @@ from neuralbridge.stochastic_processes.unconds import (
     AuxiliaryProcess
 )
 
-
-
 class BrownianProcess(ContinuousTimeProcess):
     
     def __init__(self,
@@ -247,7 +245,7 @@ class LandmarkLagrangianProcess(ContinuousTimeProcess):
     
     def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs) -> jnp.ndarray:
         x_landmarks = rearrange(x, "(n m) -> n m", n=self.n_landmarks, m=self.m_landmarks)
-        kernel_fn = lambda dist_mat: self.k_alpha * jnp.exp(-jnp.linalg.norm(dist_mat, axis=-1)**2 / self.k_sigma**2)
+        kernel_fn = lambda dist_mat: 0.5 * self.k_alpha * jnp.exp(-jnp.sum(dist_mat**2, axis=-1) / (2.0 * self.k_sigma**2))
         dist_mat = x_landmarks[:, None, :] - x_landmarks[None, :, :]
         corr_mat = kernel_fn(dist_mat)
         Q_half = jnp.einsum("i j, k l -> i k j l", corr_mat, jnp.eye(self.m_landmarks, dtype=self.dtype))
@@ -274,7 +272,7 @@ class LandmarkLagrangianAuxProcess(AuxiliaryProcess):
         
     def init_g(self, x0: jnp.ndarray) -> None:
         x0_landmarks = rearrange(x0, "(n m) -> n m", n=self.n_landmarks, m=self.m_landmarks)
-        kernel_fn = lambda dist_mat: self.k_alpha * jnp.exp(-jnp.linalg.norm(dist_mat, axis=-1)**2 / self.k_sigma**2)
+        kernel_fn = lambda dist_mat: 0.5 * self.k_alpha * jnp.exp(-jnp.sum(dist_mat**2, axis=-1) / (2.0 * self.k_sigma**2))
         dist_mat = x0_landmarks[:, None, :] - x0_landmarks[None, :, :]
         corr_mat = kernel_fn(dist_mat)
         Q0_half = jnp.einsum("i j, k l -> i k j l", corr_mat, jnp.eye(self.m_landmarks, dtype=self.dtype))

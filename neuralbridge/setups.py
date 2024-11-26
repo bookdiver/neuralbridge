@@ -12,3 +12,4 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from einops import repeat, rearrange
+from tqdm.auto import tqdm
