@@ -111,7 +111,6 @@ class SDESolver(abc.ABC):
     @partial(jax.grad, argnums=5)
     def step_with_variables(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any,
-        *, training: bool = False, mutable: Optional[Union[str, Tuple[str, ...], bool]] = False
     ):
         pass
     
@@ -188,9 +187,6 @@ class SDESolver(abc.ABC):
         dWs: jnp.ndarray,
         batch_size: Optional[int] = 1,
         enforce_end_point: Optional[jnp.ndarray] = None,
-        *,
-        training: bool = False,
-        mutable: Optional[Union[List[str], bool]] = False,
     ) -> SamplePath:
         if hasattr(self.sde, "G"):
             record_ll = True
@@ -199,14 +195,12 @@ class SDESolver(abc.ABC):
 
         def scan_fn(solver_state: namedtuple, t_W_args: tuple) -> tuple:
             t, dt, dW = t_W_args
-            x = self.step_with_variables(
+            x, nu = self.step_with_variables(
                 x=solver_state.x, 
                 t=t, 
                 dt=dt, 
                 dW=dW,
                 variables=variables,
-                training=training,
-                mutable=mutable
             )
             G = self.sde.G(t, x) if record_ll else 0.0
             log_ll = solver_state.log_ll + G * dt
@@ -214,12 +208,12 @@ class SDESolver(abc.ABC):
                 x=x, 
                 log_ll=log_ll, 
             )
-            return new_state, x
+            return new_state, (x, nu)
         
         assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
 
         init_state = SolverState(x=x0, log_ll=0.0)
-        final_state, xs = jax.vmap(
+        final_state, (xs, nus) = jax.vmap(
             lambda dW: jax.lax.scan(
                 scan_fn, 
                 init=init_state, 
@@ -240,7 +234,8 @@ class SDESolver(abc.ABC):
             ts=self.ts,
             dWs=dWs,
             dts=self.dts,
-            log_ll=final_state.log_ll
+            log_ll=final_state.log_ll,
+            nus=nus,
         )
 
 
@@ -252,12 +247,11 @@ class Euler(SDESolver):
         return x + drift * dt + diffusion @ dW
     
     def step_with_variables(
-        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any,
-        *, training: bool = False, mutable: Optional[Union[List[str], bool]] = None
-    ) -> jnp.ndarray:
-        drift = self.sde.f(t, x, variables, training=training, mutable=mutable)
+        self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        drift, nu = self.sde.f(t, x, variables)
         diffusion = self.sde.g(t, x)
-        return x + drift * dt + diffusion @ dW
+        return x + drift * dt + diffusion @ dW, nu
     
 # class ModifiedEuler(SDESolver):
 #     # !!! NOTE: May not work now

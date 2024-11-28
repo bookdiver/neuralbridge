@@ -13,18 +13,16 @@ from neuralbridge.utils.sample_path import SamplePath
 
 @struct.dataclass
 class TrainState(train_state.TrainState):
-    batch_stats: dict = struct.field(pytree_node=True)
     rng_key: jax.Array = struct.field(pytree_node=True)
 
     @classmethod
-    def create(cls, *, apply_fn, params, tx, batch_stats, rng_key, **kwargs):
+    def create(cls, *, apply_fn, params, tx, rng_key, **kwargs):
         return cls(
             step=0,
             apply_fn=apply_fn,
             params=params,
             tx=tx,
             opt_state=tx.init(params),
-            batch_stats=batch_stats,
             rng_key=rng_key,
             **kwargs,
         )
@@ -63,11 +61,9 @@ class NeuralBridge:
             self.init_rng_key,
             dummy_t,
             dummy_x,
-            training=False
         )
         
         self.init_params = variables["params"]
-        self.init_batch_stats = variables["batch_stats"] if "batch_stats" in variables else {}
         self.state = None 
     
     def _initialize_optimizer(self, learning_rate: Optional[float] = None) -> None:
@@ -102,7 +98,6 @@ class NeuralBridge:
             apply_fn=self.neural_net.apply,
             params=self.init_params if self.state is None else self.state.params,
             tx=optimizer,
-            batch_stats=self.init_batch_stats if self.state is None else self.state.batch_stats,
             rng_key=self.init_rng_key if self.state is None else self.state.rng_key,
         )
     
@@ -114,50 +109,44 @@ class NeuralBridge:
         )
     
     @partial(jax.jit, static_argnums=(0))
-    def _compute_loss(self, params, batch_stats, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
+    def _compute_loss(self, params, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
         path = self.path_solver.solve_with_variables(
             x0=u,
             variables={
                 "params": params,
-                "batch_stats": batch_stats
             },
             dWs=dWs,
             batch_size=self.batch_size,
             enforce_end_point=v,
-            training=True,
-            mutable=["batch_stats"]
         )
-        ts, xs, log_ll = path.ts, path.xs, path.log_ll
-        ts = repeat(ts, "t -> b t 1", b=self.batch_size)
+        log_ll, nus = path.log_ll, path.nus
+        # ts, xs, log_ll = path.ts, path.xs, path.log_ll
+        # ts = repeat(ts, "t -> b t 1", b=self.batch_size)
         
-        ts_flatten = rearrange(ts[:, 1:, :], "b t 1 -> (b t) 1")
-        xs_flatten = rearrange(xs[:, 1:, :], "b t d -> (b t) d")  
-        nus, updated_batch_stats = state.apply_fn(
-            variables = {
-                "params": params,
-                "batch_stats": batch_stats
-            },
-            t=ts_flatten,
-            x=xs_flatten,
-            training=True,
-            mutable=["batch_stats"]
-        )
-        nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
+        # ts_flatten = rearrange(ts[:, 1:, :], "b t 1 -> (b t) 1")
+        # xs_flatten = rearrange(xs[:, 1:, :], "b t d -> (b t) d")  
+        # nus, updated_batch_stats = state.apply_fn(
+        #     variables = {
+        #         "params": params,
+        #     },
+        #     t=ts_flatten,
+        #     x=xs_flatten,
+        # )
+        # nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
         loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll # (b, )
         loss = jnp.mean(loss, axis=0)
-        return loss, updated_batch_stats
+        return loss
     
     @partial(jax.jit, static_argnums=(0))
     def _train_step(self, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[TrainState, jnp.ndarray]:
         
         def loss_fn(params):
-            loss, updated_batch_stats = self._compute_loss(params, state.batch_stats, state, dWs, u, v)
-            return loss, updated_batch_stats
+            loss = self._compute_loss(params, dWs, u, v)
+            return loss
         
-        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+        loss, grads = jax.value_and_grad(loss_fn, has_aux=False)(state.params)
         
         state = state.apply_gradients(grads=grads)
-        state = state.replace(batch_stats=aux["batch_stats"])
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
         return state, loss
     
@@ -212,7 +201,6 @@ class NeuralBridge:
                 ckpt_dir=absolute_save_dir,
                 target={
                     "params": self.state.params,
-                    "batch_stats": self.state.batch_stats,
                     "opt_state": self.state.opt_state,
                     "rng_key": self.state.rng_key,
                     "epoch": epoch,
@@ -244,7 +232,6 @@ class NeuralBridge:
         self.state = TrainState(
             apply_fn=self.neural_net.apply,
             params=ckpt["params"],
-            batch_stats=ckpt["batch_stats"],
             tx=self.state.tx,
             opt_state=ckpt["opt_state"],
             rng_key=ckpt["rng_key"],
@@ -259,12 +246,9 @@ class NeuralBridge:
             x0=x0,
             variables={
                 "params": self.state.params,
-                "batch_stats": self.state.batch_stats
             },
             dWs=dWs,
             batch_size=batch_size,
             enforce_end_point=enforce_end_point,
-            training=False,
-            mutable=False
         )
         return path

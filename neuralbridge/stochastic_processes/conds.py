@@ -112,7 +112,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         r = self.r(t, x)
         term1 = jnp.inner(self.ori_proc.f(t, x) - self.aux_proc.f(t, x), r)
         A = self.ori_proc.Sigma(t, x) - self.aux_proc.Sigma(t, x)
-        term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] - r @ r.T))
+        term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] -jnp.outer(r, r)))
         return term1 + term2
 
 class NeuralBridgeProcess(ContinuousTimeProcess):
@@ -127,17 +127,14 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
         self.neural_net = neural_net
         
     def nu(
-        self, t: float, x: jnp.ndarray, variables: Any,
-        *, training: bool = False, mutable: Optional[Union[str, List[str], bool]] = False
+        self, t: float, x: jnp.ndarray, variables: Any
     ) -> jnp.ndarray:
         t = rearrange(jnp.array([t]), "t -> 1 t")
         x = rearrange(x, "d -> 1 d")
-        output, *_ = self.neural_net.apply(
+        output = self.neural_net.apply(
             variables=variables,
-            t=t, 
-            x=x, 
-            training=training,
-            mutable=mutable
+            t=t,
+            x=x
         )
         if output.ndim == 1:
             return output
@@ -145,11 +142,10 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
             return rearrange(output, "1 d -> d")
 
     def f(
-        self, t: float, x: jnp.ndarray, variables: Any,
-        training: bool = False, mutable: Optional[Union[str, List[str], bool]] = False
-    ) -> jnp.ndarray:
-        return self.guided_process.f(t, x)  \
-               + self.g(t, x) @ self.nu(t, x, variables, training=training, mutable=mutable)
+        self, t: float, x: jnp.ndarray, variables: Any
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        nu = self.nu(t, x, variables)
+        return self.guided_process.f(t, x) + self.g(t, x) @ nu, nu
                
     def g(self, t: float, x: jnp.ndarray):
         return self.guided_process.g(t, x)

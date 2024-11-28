@@ -22,20 +22,15 @@ def get_activation(activation: str) -> Callable:
 class MLPSmall(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: Optional[str] = None
     activation: Optional[str] = "tanh"
     dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
-    def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
+    def __call__(self, t: jnp.ndarray, x: jnp.ndarray):
         
         x = jnp.concatenate([t, x], axis=-1)
         for hidden_dim in self.hidden_dims:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
-            if self.norm == "batch":
-                x = nn.BatchNorm(use_running_average=not training)(x)
-            elif self.norm == "layer":
-                x = nn.LayerNorm()(x)
             x = get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x
@@ -43,7 +38,6 @@ class MLPSmall(nn.Module):
 class MLP(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
-    norm: Optional[str] = None
     activation: Optional[str] = "tanh"
     t_emb_dim: int = 32
     t_emb_max_period: float = 100.0
@@ -51,7 +45,7 @@ class MLP(nn.Module):
     dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
-    def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
+    def __call__(self, t: jnp.ndarray, x: jnp.ndarray):
         t_emb = TimeEmbedding(
             self.t_emb_dim,
             self.t_emb_max_period,
@@ -64,10 +58,6 @@ class MLP(nn.Module):
         
         for hidden_dim in self.hidden_dims:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
-            if self.norm == "batch":
-                x = nn.BatchNorm(use_running_average=not training)(x)
-            elif self.norm == "layer":
-                x = nn.LayerNorm()(x)
             x = get_activation(self.activation)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x

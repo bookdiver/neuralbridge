@@ -210,18 +210,17 @@ class CellDiffusionAuxProcess(AuxiliaryProcess):
         self.alpha = alpha
         self.sigma = sigma
 
-    def beta(self, t: jnp.ndarray, *args, **kwargs):
+    def beta(self, t: jnp.ndarray):
         return jnp.ones(self.dim, dtype=self.dtype)
 
-    def B(self, t: jnp.ndarray, *args, **kwargs):
+    def B(self, t: jnp.ndarray):
         return - 1.0 * jnp.eye(self.dim, dtype=self.dtype)
 
-    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
 
-    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
-
 
 class LandmarkLagrangianProcess(ContinuousTimeProcess):
     
@@ -240,10 +239,10 @@ class LandmarkLagrangianProcess(ContinuousTimeProcess):
         dim = int(n_landmarks * m_landmarks) if dim is None else dim
         super().__init__(T, dim, dtype)
     
-    def f(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs) -> jnp.ndarray:
+    def f(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
         return jnp.zeros(self.dim, dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs) -> jnp.ndarray:
+    def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
         x_landmarks = rearrange(x, "(n m) -> n m", n=self.n_landmarks, m=self.m_landmarks)
         kernel_fn = lambda dist_mat: 0.5 * self.k_alpha * jnp.exp(-jnp.sum(dist_mat**2, axis=-1) / (2.0 * self.k_sigma**2))
         dist_mat = x_landmarks[:, None, :] - x_landmarks[None, :, :]
@@ -279,12 +278,79 @@ class LandmarkLagrangianAuxProcess(AuxiliaryProcess):
         Q0_half = rearrange(Q0_half, "i k j l -> (i k) (j l)")
         self.g0 = Q0_half
         
-    def beta(self, t: jnp.ndarray, *args, **kwargs):
+    def beta(self, t: jnp.ndarray):
         return jnp.zeros(self.dim, dtype=self.dtype)
     
-    def B(self, t: jnp.ndarray, *args, **kwargs):
+    def B(self, t: jnp.ndarray):
         return jnp.zeros((self.dim, self.dim), dtype=self.dtype)
     
-    def g(self, t: jnp.ndarray, x: jnp.ndarray, *args, **kwargs):
+    def g(self, t: jnp.ndarray, x: jnp.ndarray):
         assert self.g0 is not None, "g0 must be initialized using .init_g(x0)"
         return self.g0
+
+class FitzHughNagumoProcess(ContinuousTimeProcess):
+    
+    def __init__(self,
+                 epsilon: float,
+                 s: float,
+                 gamma: float,
+                 b: float,
+                 sigma: float,
+                 T: Optional[float] = 10.0,
+                 dim: Optional[int] = 2,
+                 dtype: Optional[jnp.dtype] = jnp.float32):
+        super().__init__(T, dim, dtype)
+        self.epsilon = epsilon
+        self.s = s
+        self.gamma = gamma
+        self.b = b
+        self.sigma = sigma
+        
+    def f(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        a = jnp.array([[1. / self.epsilon, -1. / self.epsilon],
+                       [self.gamma,        -1.]], 
+                      dtype=self.dtype)
+        b = jnp.array([- x[0]**3 / self.epsilon + self.s / self.epsilon,
+                       self.b], 
+                      dtype=self.dtype)
+        return a @ x + b
+    
+    def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        return jnp.array([[0., 0.],
+                          [0., self.sigma]], 
+                         dtype=self.dtype)
+        
+class FitzHughNagumoAuxProcess(AuxiliaryProcess):
+    
+    def __init__(self, 
+                 epsilon: float,
+                 s: float,
+                 gamma: float,
+                 b: float,
+                 sigma: float,
+                 nu: float,
+                 T: Optional[float] = 10.0,
+                 dim: Optional[int] = 2,
+                 dtype: Optional[jnp.dtype] = jnp.float32):
+        super().__init__(T, dim, dtype)
+        self.epsilon = epsilon
+        self.s = s
+        self.gamma = gamma
+        self.b = b
+        self.sigma = sigma
+        self.nu = nu
+        
+    def B(self, t: jnp.ndarray) -> jnp.ndarray:
+        return jnp.array([[1. / self.epsilon - 3. * self.nu**2 / self.epsilon, -1. / self.epsilon],
+                          [self.gamma,                                         -1.]], 
+                         dtype=self.dtype)
+        
+    def beta(self, t: jnp.ndarray) -> jnp.ndarray:
+        return jnp.array([2. * self.nu**3 / self.epsilon + self.s / self.epsilon,
+                          self.b], 
+                         dtype=self.dtype)
+        
+    def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        return jnp.array([[0., 0.],
+                          [0., self.sigma]], 
+                         dtype=self.dtype)
