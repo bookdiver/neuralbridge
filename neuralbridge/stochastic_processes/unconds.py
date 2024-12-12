@@ -19,7 +19,8 @@ class ContinuousTimeProcess(abc.ABC):
         pass
 
     def Sigma(self, t: float, x: jnp.ndarray, **kwargs):
-        return self.g(t, x, **kwargs) @ self.g(t, x, **kwargs).T
+        g = self.g(t, x, **kwargs)
+        return jnp.einsum('i j, k j -> i k', g, g)
     
     def inv_Sigma(self, t: float, x: jnp.ndarray, **kwargs):
         return jnp.linalg.inv(self.Sigma(t, x, **kwargs))
@@ -49,7 +50,7 @@ class AuxiliaryProcess(ContinuousTimeProcess):
         pass
 
     def f(self, t: float, x: jnp.ndarray, **kwargs):
-        return self.beta(t, **kwargs) + self.B(t, **kwargs) @ x
+        return self.beta(t, **kwargs) + jnp.einsum('i j, j -> i', self.B(t, **kwargs), x)
 
     @abc.abstractmethod
     def g(self, t: float, x: jnp.ndarray, **kwargs):

@@ -28,14 +28,14 @@ class TrainState(train_state.TrainState):
         )
         
 class NeuralBridge:
-    guided_bridge: GuidedBridgeProcess
-    neural_bridge: NeuralBridgeProcess
+    X_circ: GuidedBridgeProcess
+    X_diamond: NeuralBridgeProcess
     neural_net: nn.Module
     train_config: dict
     
-    def __init__(self, guided_bridge: GuidedBridgeProcess, neural_net: nn.Module, train_config: dict):
-        self.guided_bridge = guided_bridge
-        self.neural_bridge = NeuralBridgeProcess(guided_bridge, neural_net)
+    def __init__(self, X_circ: GuidedBridgeProcess, neural_net: nn.Module, train_config: dict):
+        self.X_circ = X_circ
+        self.X_diamond = NeuralBridgeProcess(X_circ, neural_net)
         self.neural_net = neural_net
         
         # Training parameters
@@ -50,13 +50,13 @@ class NeuralBridge:
         self.warmup_steps = train_config.get("warmup_steps", 0)
         self.clip_norm = train_config.get("clip_norm", None)
         
-        self.wiener_proc = None
+        self.W = None
         self.path_solver = None
         self._initialize_model()
 
     def _initialize_model(self) -> None:
         self.init_rng_key = jax.random.PRNGKey(self.seed)
-        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.neural_bridge.dim))
+        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.X_circ.dim))
         variables = self.neural_net.init(
             self.init_rng_key,
             dummy_t,
@@ -101,11 +101,11 @@ class NeuralBridge:
             rng_key=self.init_rng_key if self.state is None else self.state.rng_key,
         )
     
-    def initialize_path_solver(self, wiener_proc: WienerProcess) -> None:
-        self.wiener_proc = wiener_proc
+    def initialize_path_solver(self, W: WienerProcess) -> None:
+        self.W = W
         self.path_solver = Euler(
-            sde=self.neural_bridge,
-            wiener=wiener_proc
+            sde=self.X_diamond,
+            W=W
         )
     
     @partial(jax.jit, static_argnums=(0))
@@ -120,19 +120,6 @@ class NeuralBridge:
             enforce_end_point=v,
         )
         log_ll, nus = path.log_ll, path.nus
-        # ts, xs, log_ll = path.ts, path.xs, path.log_ll
-        # ts = repeat(ts, "t -> b t 1", b=self.batch_size)
-        
-        # ts_flatten = rearrange(ts[:, 1:, :], "b t 1 -> (b t) 1")
-        # xs_flatten = rearrange(xs[:, 1:, :], "b t d -> (b t) d")  
-        # nus, updated_batch_stats = state.apply_fn(
-        #     variables = {
-        #         "params": params,
-        #     },
-        #     t=ts_flatten,
-        #     x=xs_flatten,
-        # )
-        # nus = rearrange(nus, "(b t) d -> b t d", b=self.batch_size)
         loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll # (b, )
         loss = jnp.mean(loss, axis=0)
         return loss
@@ -150,9 +137,9 @@ class NeuralBridge:
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
         return state, loss
     
-    def train_neural_bridge(self, u: jnp.ndarray, v: jnp.ndarray, mode: str = "train", epoch: Optional[int] = None) -> Optional[jnp.ndarray]:
+    def train(self, u: jnp.ndarray, v: jnp.ndarray, mode: str = "train", epoch: Optional[int] = None) -> Optional[jnp.ndarray]:
         if mode == "train":
-            assert self.path_solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(wiener_proc)"
+            assert self.path_solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(W)"
             self._initialize_optimizer()
             start_epoch = 1
         
@@ -176,7 +163,7 @@ class NeuralBridge:
             iter_bar = tqdm(range(self.n_iters), desc=f"Epoch {epoch}", unit="iter", leave=False)
             for _ in iter_bar:
                 
-                dWs = self.wiener_proc.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
+                dWs = self.W.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
                 self.state, loss = self._train_step(self.state, dWs, u, v)
                 
                 losses.append(loss)
@@ -189,7 +176,10 @@ class NeuralBridge:
 
             self._save_checkpoint(epoch) 
             
-        return jnp.array(losses)
+        losses = jnp.array(losses)
+        jnp.save(os.path.join("../assets/ckpts/neuralbridge", f"{self.save_name}", "losses.npy"), losses)
+        
+        return losses
     
     def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
@@ -241,7 +231,7 @@ class NeuralBridge:
         return None
     
     def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_end_point: Optional[jnp.ndarray] = None) -> SamplePath:
-        dWs = self.wiener_proc.sample_path(rng_key, batch_size=batch_size).dxs
+        dWs = self.W.sample_path(rng_key, batch_size=batch_size).dxs
         path = self.path_solver.solve_with_variables(
             x0=x0,
             variables={

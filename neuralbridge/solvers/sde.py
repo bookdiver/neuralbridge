@@ -9,21 +9,21 @@ class WienerProcess:
     def __init__(self,
                  T: float, 
                  dt: float,
-                 dim: int,
+                 shape: Tuple[int, ...],
                  dtype: Optional[jnp.dtype] = jnp.float32,
                  t_scheme: str = "linear"):
         self.T = T
         self.dt = dt
-        self.dim = dim
+        self.shape = shape
         self.dtype = dtype
         self.t_scheme = t_scheme
         
     @property
     def ts(self):
         if self.t_scheme == "linear":
-            return self.linear_t_scheme()
+            return self._linear_t_scheme()
         elif self.t_scheme == "quadratic":
-            return self.quadratic_t_scheme()
+            return self._quadratic_t_scheme()
         else:
             raise ValueError(f"Time scheme: {self.t_scheme} not found!")
         
@@ -31,17 +31,17 @@ class WienerProcess:
     def dts(self):
         return jnp.diff(self.ts)
     
-    def linear_t_scheme(self):
+    def _linear_t_scheme(self):
         ts = jnp.arange(0.0, self.T + self.dt, self.dt, dtype=self.dtype)
         return ts
     
-    def quadratic_t_scheme(self):
+    def _quadratic_t_scheme(self):
         ts = jnp.arange(0.0, self.T + self.dt, self.dt, dtype=self.dtype)
         ts =  ts * (2.0 - ts / self.T)
         return ts
 
-    def sample_step(self, rng_key: jax.Array, dt: float) -> jnp.ndarray:
-        dW = jax.random.normal(rng_key, (self.dim,), dtype=self.dtype) * jnp.sqrt(dt)
+    def _sample_step(self, rng_key: jax.Array, dt: float) -> jnp.ndarray:
+        dW = jax.random.normal(rng_key, self.shape, self.dtype) * jnp.sqrt(dt)
         return dW
     
     def sample_path(self, rng_key: jax.Array, batch_size: int = 1) -> SamplePath:
@@ -50,21 +50,21 @@ class WienerProcess:
         sub_keys = jax.random.split(rng_key, n_steps * batch_size).reshape((batch_size, n_steps, -1))
         dWs = jax.vmap(
             jax.vmap(
-                self.sample_step,
-                in_axes=(0, 0)
+                self._sample_step,
+                in_axes=(0, 0)   # vectorize over time steps
             ),
-            in_axes=(0, None)
-        )(sub_keys, self.dts)
+            in_axes=(0, None)    # vectorize over batch size
+        )(sub_keys, self.dts)    # dWs.shape = (batch_size, n_steps, *self.shape)
         
         Ws = jnp.cumsum(dWs, axis=1)
-        Ws = jnp.concatenate([jnp.zeros((batch_size, 1, self.dim)), Ws], axis=1)
+        Ws = jnp.concatenate([jnp.zeros((batch_size, 1, *self.shape)), Ws], axis=1)  # Ws.shape = (batch_size, n_steps + 1, *self.shape)
         
         return SamplePath(
             ts=self.ts, 
             dts=self.dts,
             xs=Ws,
             dxs=dWs,
-            name=f"{self.dim}-dimensional Wiener process"
+            name=f"Wiener process"
         )
     
     def path_sampler(self, rng_key: jax.Array, batch_size: int = 1) -> Generator[SamplePath, None, None]:
@@ -75,43 +75,65 @@ class WienerProcess:
 
 class SDESolver(abc.ABC):
     sde: ContinuousTimeProcess
-    wiener: WienerProcess
+    W: WienerProcess
 
     def __init__(
         self, 
         sde: ContinuousTimeProcess, 
-        wiener: WienerProcess
+        W: WienerProcess
     ):
         self.sde = sde
-        self.wiener = wiener
+        self.W = W
         
     @property
     def T(self):
-        return self.wiener.T
+        return self.W.T
     
     @property
     def ts(self):
-        return self.wiener.ts
+        return self.W.ts
     
     @property
     def dt(self):
-        return self.wiener.dt
+        return self.W.dt
     
     @property
     def dts(self):
-        return self.wiener.dts
+        return self.W.dts
     
     @abc.abstractmethod
-    def step(
+    def _step(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, *args, **kwargs
     ):
+        """ This method should be implemented by the subclass. 
+        It should return the next state given the current state, time, time step, and Wiener increment.
+        This method is called when solving an unparameterized SDE. On the contrary, the next method
+        is called when solving a parameterized SDE and mainly used for backprop.
+        
+        Args:
+            x (jnp.ndarray): The current state.
+            t (float): The current time.
+            dt (float): The time step.
+            dW (jnp.ndarray): The Wiener increment.
+        """
         pass
     
     @abc.abstractmethod
     @partial(jax.grad, argnums=5)
-    def step_with_variables(
+    def _step_with_variables(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any,
     ):
+        """ This method should be implemented by the subclass.
+        It should return the next state and the next variable given the current state, time, time step, and Wiener increment.
+        This method is called when solving a parameterized SDE and mainly used for backprop.
+        
+        Args:
+            x (jnp.ndarray): The current state.
+            t (float): The current time.
+            dt (float): The time step.
+            dW (jnp.ndarray): The Wiener increment.
+            variables (Any): The variables for the neural network.
+        """
         pass
     
     @partial(jax.jit, static_argnums=(0, 4))
@@ -131,7 +153,7 @@ class SDESolver(abc.ABC):
             
         def scan_fn(solver_state: namedtuple, t_W_args: tuple) -> tuple:
             t, dt, dW = t_W_args
-            x = self.step(
+            x = self._step(
                 x=solver_state.x, 
                 t=t, 
                 dt=dt, 
@@ -147,7 +169,7 @@ class SDESolver(abc.ABC):
         
         if dWs is None:
             assert rng_key is not None, "Either dWs or rng_key must be provided"
-            wiener_path = self.wiener.sample_path(
+            wiener_path = self.W.sample_path(
                 rng_key,
                 batch_size=batch_size
             )
@@ -164,12 +186,25 @@ class SDESolver(abc.ABC):
             ),
             in_axes=0
         )(dWs)
-        x0_expanded = jnp.expand_dims(x0, axis=(0, 1))  
-        x0_tiled = jnp.tile(x0_expanded, (batch_size, 1, 1)) 
+        x0_tiled = repeat(x0, "i -> b 1 i", b=batch_size)
         xs = jnp.concatenate([x0_tiled, xs], axis=1) 
         
         if enforce_end_point is not None:
-            xs = xs.at[:, -1, :].set(enforce_end_point[None, ...])
+            # Check if enforce_end_point has fewer dimensions than xs
+            if enforce_end_point.size < xs.shape[-1]:
+                # Create a boolean mask for the components to enforce
+                mask = ~jnp.isnan(enforce_end_point)
+                # Only update the non-NaN components
+                xs = xs.at[:, -1].set(
+                    jnp.where(
+                        mask,
+                        enforce_end_point[None, ...],
+                        xs[:, -1]
+                    )
+                )
+            else:
+                # Original behavior for full enforcement
+                xs = xs.at[:, -1].set(enforce_end_point[None, ...])
             
         return SamplePath(
             name=f"{self.sde.__class__.__name__} sample path",
@@ -195,7 +230,7 @@ class SDESolver(abc.ABC):
 
         def scan_fn(solver_state: namedtuple, t_W_args: tuple) -> tuple:
             t, dt, dW = t_W_args
-            x, nu = self.step_with_variables(
+            x, nu = self._step_with_variables(
                 x=solver_state.x, 
                 t=t, 
                 dt=dt, 
@@ -221,12 +256,25 @@ class SDESolver(abc.ABC):
             ),
             in_axes=0
         )(dWs)
-        x0_expanded = jnp.expand_dims(x0, axis=(0, 1))  
-        x0_tiled = jnp.tile(x0_expanded, (batch_size, 1, 1)) 
+        x0_tiled = repeat(x0, "i -> b 1 i", b=batch_size)
         xs = jnp.concatenate([x0_tiled, xs], axis=1) 
         
         if enforce_end_point is not None:
-            xs = xs.at[:, -1, :].set(enforce_end_point[None, ...])
+            # Check if enforce_end_point has fewer dimensions than xs
+            if enforce_end_point.size < xs.shape[-1]:
+                # Create a boolean mask for the components to enforce
+                mask = ~jnp.isnan(enforce_end_point)
+                # Only update the non-NaN components
+                xs = xs.at[:, -1].set(
+                    jnp.where(
+                        mask,
+                        enforce_end_point[None, ...],
+                        xs[:, -1]
+                    )
+                )
+            else:
+                # Original behavior for full enforcement
+                xs = xs.at[:, -1].set(enforce_end_point[None, ...])
             
         return SamplePath(
             name=f"{self.sde.__class__.__name__} sample path",
@@ -240,18 +288,17 @@ class SDESolver(abc.ABC):
 
 
 class Euler(SDESolver):
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
+    def _step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
         drift = self.sde.f(t, x)
         diffusion = self.sde.g(t, x)
-        return x + drift * dt + diffusion @ dW
+        return x + drift * dt + jnp.einsum('i j, j -> i', diffusion, dW)
     
-    def step_with_variables(
+    def _step_with_variables(
         self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         drift, nu = self.sde.f(t, x, variables)
         diffusion = self.sde.g(t, x)
-        return x + drift * dt + diffusion @ dW, nu
+        return x + drift * dt + jnp.einsum('i j, j -> i', diffusion, dW), nu
     
 # class ModifiedEuler(SDESolver):
 #     # !!! NOTE: May not work now

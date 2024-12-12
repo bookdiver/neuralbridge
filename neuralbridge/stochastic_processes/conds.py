@@ -51,8 +51,8 @@ class ReversedBridgeProcess(ContinuousTimeProcess):
 class GuidedBridgeProcess(ContinuousTimeProcess):
 
     def __init__(self, 
-                 ori_proc: ContinuousTimeProcess, 
-                 aux_proc: AuxiliaryProcess,
+                 X: ContinuousTimeProcess, 
+                 X_tilde: AuxiliaryProcess,
                  u: jnp.ndarray,
                  v: jnp.ndarray,
                  L0: jnp.ndarray,
@@ -60,25 +60,25 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
                  ts: jnp.ndarray,
                  ode_solver_kernel: str = "dopri5"
                  ):
-        super().__init__(ori_proc.T, ori_proc.dim, ori_proc.dtype)
-        assert u.shape == v.shape
+        super().__init__(X.T, X.dim, X.dtype)
         
-        self.ori_proc = ori_proc
-        self.aux_proc = aux_proc
+        self.X = X
+        self.X_tilde = X_tilde
 
         self.u = u
         self.v = v
 
         self.backward_ode = BackwardODE(
-            aux_proc=aux_proc, 
+            X_tilde=X_tilde, 
             L0=L0, 
             Sigma0=Sigma0,
+            mu0=jnp.zeros_like(v),
             kernel=ode_solver_kernel
         )
         
         self.ts = ts
         self.Ls, self.Ms, self.mus = self._solve_backward_ode(ts)
-        self.Hs = jax.vmap(lambda L, M: L.T @ M @ L)(self.Ls, self.Ms)
+        self.Hs = jnp.einsum("b j i, b j k, b k l -> b i l", self.Ls, self.Ms, self.Ls)
     
     def _find_t(self, t: float):
         t = t.squeeze() if t.ndim > 0 else t
@@ -87,21 +87,22 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     @partial(jax.jit, static_argnums=(0,))
     def r(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
         t_idx = self._find_t(t)
-        L, M, mu = self.Ls[t_idx], self.Ms[t_idx], self.mus[t_idx]
-        return L.T @ M @ (self.v - mu - L @ x)
+        L, M, mu, H = self.Ls[t_idx], self.Ms[t_idx], self.mus[t_idx], self.Hs[t_idx]
+        F = jnp.einsum("j i, j k, k -> i", L, M, self.v - mu)
+        return F - jnp.einsum("i j, j -> i", H, x)
     
     def f(self, t: float, x: jnp.ndarray):
-        return self.ori_proc.f(t, x)  \
+        return self.X.f(t, x)  \
                + self.Sigma(t, x) @ self.r(t, x)
     
     def g(self, t: float, x: jnp.ndarray):
-        return self.ori_proc.g(t, x)
+        return self.X.g(t, x)
 
     def Sigma(self, t: float, x: jnp.ndarray):
-        return self.ori_proc.Sigma(t, x)
+        return self.X.Sigma(t, x)
     
     def inv_Sigma(self, t: float, x: jnp.ndarray):
-        return self.ori_proc.inv_Sigma(t, x)
+        return self.X.inv_Sigma(t, x)
     
     def _solve_backward_ode(self, ts: jnp.ndarray):
         reverse_ts = jnp.flip(ts)
@@ -110,20 +111,20 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     
     def G(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
         r = self.r(t, x)
-        term1 = jnp.inner(self.ori_proc.f(t, x) - self.aux_proc.f(t, x), r)
-        A = self.ori_proc.Sigma(t, x) - self.aux_proc.Sigma(t, x)
-        term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] -jnp.outer(r, r)))
+        term1 = jnp.einsum("i, i -> ", self.X.f(t, x) - self.X_tilde.f(t, x), r)
+        A = self.X.Sigma(t, x) - self.X_tilde.Sigma(t, x)
+        term2 = -0.5 * jnp.trace(A @ (self.Hs[self._find_t(t)] - jnp.einsum("i, j -> i j", r, r)))
         return term1 + term2
 
 class NeuralBridgeProcess(ContinuousTimeProcess):
     
     def __init__(self, 
-                 guided_process: GuidedBridgeProcess,
+                 X_circ: GuidedBridgeProcess,
                  neural_net: nn.Module
         ):
-        super().__init__(guided_process.T, guided_process.dim, guided_process.dtype)
+        super().__init__(X_circ.T, X_circ.dim, X_circ.dtype)
         
-        self.guided_process = guided_process
+        self.X_circ = X_circ
         self.neural_net = neural_net
         
     def nu(
@@ -136,19 +137,17 @@ class NeuralBridgeProcess(ContinuousTimeProcess):
             t=t,
             x=x
         )
-        if output.ndim == 1:
-            return output
-        else:
-            return rearrange(output, "1 d -> d")
+        output = rearrange(output, "1 d -> d")
+        return output
 
     def f(
         self, t: float, x: jnp.ndarray, variables: Any
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         nu = self.nu(t, x, variables)
-        return self.guided_process.f(t, x) + self.g(t, x) @ nu, nu
+        return self.X_circ.f(t, x) + jnp.einsum("i j, j -> i", self.g(t, x), nu), nu
                
     def g(self, t: float, x: jnp.ndarray):
-        return self.guided_process.g(t, x)
+        return self.X_circ.g(t, x)
     
     def G(self, t: float, x: jnp.ndarray):
-        return self.guided_process.G(t, x)
+        return self.X_circ.G(t, x)
