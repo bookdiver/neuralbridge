@@ -76,7 +76,7 @@ class BrownianBridgeProcess(ContinuousTimeProcess):
     def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return 1.0 / self.params["sigma"]**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-class OUProcess(ContinuousTimeProcess):
+class OrnsteinUhlenbeckProcess(ContinuousTimeProcess):
     
     def __init__(self,
                  params: Dict[str, float],
@@ -98,7 +98,7 @@ class OUProcess(ContinuousTimeProcess):
     def inv_Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
         return 1.0 / self.params["sigma"]**2 * jnp.eye(self.dim, dtype=self.dtype)
     
-class OUAuxProcess(AuxiliaryProcess):
+class OrnsteinUhlenbeckAuxProcess(AuxiliaryProcess):
     
     def __init__(self,
                  params: Dict[str, float],
@@ -121,7 +121,7 @@ class OUAuxProcess(AuxiliaryProcess):
         return self.params["sigma"]**2 * jnp.eye(self.dim, dtype=self.dtype)
     
     
-class OUBridgeProcess(ContinuousTimeProcess):
+class OrnsteinUhlenbeckBridgeProcess(ContinuousTimeProcess):
     
     def __init__(self,
                  params: Dict[str, float],
@@ -191,10 +191,10 @@ class CellDiffusionAuxProcess(AuxiliaryProcess):
         return - 1.0 * jnp.eye(self.dim, dtype=self.dtype)
 
     def g(self, t: jnp.ndarray, x: jnp.ndarray):
-        return self.sigma * jnp.eye(self.dim, dtype=self.dtype)
+        return self.params["sigma"] * jnp.eye(self.dim, dtype=self.dtype)
 
     def Sigma(self, t: jnp.ndarray, x: jnp.ndarray):
-        return self.sigma**2 * jnp.eye(self.dim, dtype=self.dtype)
+        return self.params["sigma"]**2 * jnp.eye(self.dim, dtype=self.dtype)
 
 class LandmarkLagrangianProcess(ContinuousTimeProcess):
     
@@ -325,7 +325,7 @@ class DoubleWellPotentialDiffusionAuxProcess(AuxiliaryProcess):
                  params: Dict[str, float],
                  T: Optional[float] = 1.0,
                  dim: Optional[int] = 1,
-                 dtype: Optional[jnp.dtype] = jnp.float32):
+                 dtype: Optional[jnp.dtype] = DEFAULT_DTYPE):
         super().__init__(T, dim, dtype)
         self.params = params
         
@@ -337,3 +337,25 @@ class DoubleWellPotentialDiffusionAuxProcess(AuxiliaryProcess):
     
     def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
         return self.params["sigma"] * jnp.eye(self.dim, dtype=self.dtype)
+    
+class DoubleWellPotentialDiffusionAuxProcessBetter(AuxiliaryProcess):
+    
+    def __init__(self,
+                 params: Dict[str, Any],
+                 T: Optional[float] = 1.0,
+                 dim: Optional[int] = 1,
+                 dtype: Optional[jnp.dtype] = DEFAULT_DTYPE):
+        super().__init__(T, dim, dtype)
+        self.params = params
+
+    def beta(self, t: jnp.ndarray) -> jnp.ndarray:
+        return 2.0 * self.params["v"] * jnp.ones((self.dim, ), dtype=self.dtype)
+    
+    def B(self, t: jnp.ndarray) -> jnp.ndarray:
+        return (1.0 - 3.0 * self.params["v"]**2) * jnp.eye(self.dim, dtype=self.dtype)
+    
+    def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        return self.params["sigma"] * jnp.eye(self.dim, dtype=self.dtype)
+    
+    def Sigma(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
+        return self.params["sigma"]**2 * jnp.eye(self.dim, dtype=self.dtype)

@@ -6,47 +6,26 @@ from neuralbridge.stochastic_processes.unconds import (
 )
 from neuralbridge.solvers.ode import BackwardODE
 
-class ForwardBridgeProcess(ContinuousTimeProcess):
-    
-    def __init__(self,
-                 ori_proc: ContinuousTimeProcess,
-                 score_fn: Optional[Callable[[float, jnp.ndarray], jnp.ndarray]] = None,
-                 dtype: Optional[jnp.dtype] = jnp.float32):
-        super().__init__(ori_proc.T, ori_proc.dim, dtype)
-        
-        self.ori_proc = ori_proc
-        self.score_fn = score_fn
-        
-    def f(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
-        assert self.score_fn is not None, f"Score function is not provided"
-        return self.ori_proc.f(t, x) + self.Sigma(t, x) @ self.score_fn(t, x)
-    
-    def g(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
-        return self.ori_proc.g(t, x)
-    
-    def Sigma(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
-        return self.ori_proc.Sigma(t, x)
-    
 class ReversedBridgeProcess(ContinuousTimeProcess):
     
     def __init__(self, 
-                 ori_proc: ContinuousTimeProcess,
-                 score_fn: Optional[Callable[[float, jnp.ndarray], jnp.ndarray]] = None,
-                 dtype: Optional[jnp.dtype] = jnp.float32):
-        super().__init__(ori_proc.T, ori_proc.dim, dtype)
+                 X: ContinuousTimeProcess,
+                 score_fn: Callable[[float, jnp.ndarray], jnp.ndarray]):
+        super().__init__(X.T, X.dim, X.dtype)
         
-        self.ori_proc = ori_proc
+        self.X = X
+        
         self.score_fn = score_fn
         
-    def f(self, t: float, z: jnp.ndarray) -> jnp.ndarray:
+    def f(self, t: float, y: jnp.ndarray) -> jnp.ndarray:
         assert self.score_fn is not None, f"Score function is not provided"
-        return - self.ori_proc.f(self.T - t, z) + self.Sigma(self.T - t, z) @ self.score_fn(self.T - t, z)    # !!! NOTE: right now the Jacobian is not considered yet.
+        return - self.X.f(self.T - t, y) + jnp.einsum("i j, j -> i", self.Sigma(self.T - t, y), self.score_fn(self.T - t, y))    # !!! NOTE: right now the Jacobian is not considered yet.
     
-    def g(self, t: float, z: jnp.ndarray) -> jnp.ndarray:
-        return self.ori_proc.g(self.T - t, z)
+    def g(self, t: float, y: jnp.ndarray) -> jnp.ndarray:
+        return self.X.g(self.T - t, y)
     
-    def Sigma(self, t: float, z: jnp.ndarray) -> jnp.ndarray:
-        return self.ori_proc.Sigma(self.T - t, z)
+    def Sigma(self, t: float, y: jnp.ndarray) -> jnp.ndarray:
+        return self.X.Sigma(self.T - t, y)
 
 class GuidedBridgeProcess(ContinuousTimeProcess):
 
@@ -66,13 +45,15 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         self.X_tilde = X_tilde
 
         self.u = u
-        self.v = v
+        
+        self.v_ = v # could include nans to identify unobserved points
+        self.v = self.v_[~jnp.isnan(self.v_)] 
 
         self.backward_ode = BackwardODE(
             X_tilde=X_tilde, 
             L0=L0, 
             Sigma0=Sigma0,
-            mu0=jnp.zeros_like(v),
+            mu0=jnp.zeros_like(self.v),
             kernel=ode_solver_kernel
         )
         

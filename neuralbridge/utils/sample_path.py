@@ -20,11 +20,18 @@ class SamplePath:
         info.extend(f"{key}.shape: {value.shape}" for key, value in self.path.items())
         return "\n ".join(info)
     
-    def __getitem__(self, idx: Union[int, slice]) -> "SamplePath":
+    def __getitem__(self, idx: Union[int, slice, jnp.ndarray]) -> "SamplePath":
         if isinstance(idx, slice):
             start, stop, step = idx.indices(self.n_samples)
             return SamplePath(self.name, **{
                 key: value[start:stop:step, ...] if len(value.shape) > 1 else value 
+                for key, value in self.path.items()
+            })
+        elif isinstance(idx, jnp.ndarray) and idx.dtype == jnp.bool_:
+            if idx.shape[0] != self.n_samples:
+                raise IndexError(f"Boolean index has wrong shape: {idx.shape[0]} != {self.n_samples}")
+            return SamplePath(self.name, **{
+                key: value[idx, ...] if len(value.shape) > 1 else value
                 for key, value in self.path.items()
             })
         else:

@@ -10,7 +10,7 @@ class WienerProcess:
                  T: float, 
                  dt: float,
                  shape: Tuple[int, ...],
-                 dtype: Optional[jnp.dtype] = jnp.float32,
+                 dtype: Optional[jnp.dtype] = DEFAULT_DTYPE,
                  t_scheme: str = "linear"):
         self.T = T
         self.dt = dt
@@ -44,7 +44,7 @@ class WienerProcess:
         dW = jax.random.normal(rng_key, self.shape, self.dtype) * jnp.sqrt(dt)
         return dW
     
-    def sample_path(self, rng_key: jax.Array, batch_size: int = 1) -> SamplePath:
+    def sample(self, rng_key: jax.Array, batch_size: int = 1) -> jnp.ndarray:
         n_steps = len(self.dts)
         
         sub_keys = jax.random.split(rng_key, n_steps * batch_size).reshape((batch_size, n_steps, -1))
@@ -56,18 +56,9 @@ class WienerProcess:
             in_axes=(0, None)    # vectorize over batch size
         )(sub_keys, self.dts)    # dWs.shape = (batch_size, n_steps, *self.shape)
         
-        Ws = jnp.cumsum(dWs, axis=1)
-        Ws = jnp.concatenate([jnp.zeros((batch_size, 1, *self.shape)), Ws], axis=1)  # Ws.shape = (batch_size, n_steps + 1, *self.shape)
-        
-        return SamplePath(
-            ts=self.ts, 
-            dts=self.dts,
-            xs=Ws,
-            dxs=dWs,
-            name=f"Wiener process"
-        )
+        return dWs
     
-    def path_sampler(self, rng_key: jax.Array, batch_size: int = 1) -> Generator[SamplePath, None, None]:
+    def get_path_sampler(self, rng_key: jax.Array, batch_size: int = 1) -> Generator[jnp.ndarray, None, None]:
             
         while True:
             rng_key, sub_key = jax.random.split(rng_key)
@@ -143,7 +134,7 @@ class SDESolver(abc.ABC):
         rng_key: Optional[jax.Array] = None, 
         dWs: Optional[jnp.ndarray] = None, 
         batch_size: Optional[int] = 1,
-        enforce_end_point: Optional[jnp.ndarray] = None,
+        enforce_endpoint: Optional[jnp.ndarray] = None,
     ) -> SamplePath:
         
         if hasattr(self.sde, "G"):
@@ -169,11 +160,7 @@ class SDESolver(abc.ABC):
         
         if dWs is None:
             assert rng_key is not None, "Either dWs or rng_key must be provided"
-            wiener_path = self.W.sample_path(
-                rng_key,
-                batch_size=batch_size
-            )
-            dWs = wiener_path.dxs
+            dWs = self.W.sample(rng_key, batch_size)
         else:
             assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
 
@@ -189,22 +176,22 @@ class SDESolver(abc.ABC):
         x0_tiled = repeat(x0, "i -> b 1 i", b=batch_size)
         xs = jnp.concatenate([x0_tiled, xs], axis=1) 
         
-        if enforce_end_point is not None:
+        if enforce_endpoint is not None:
             # Check if enforce_end_point has fewer dimensions than xs
-            if enforce_end_point.size < xs.shape[-1]:
+            if enforce_endpoint.size < xs.shape[-1]:
                 # Create a boolean mask for the components to enforce
-                mask = ~jnp.isnan(enforce_end_point)
+                mask = ~jnp.isnan(enforce_endpoint)
                 # Only update the non-NaN components
                 xs = xs.at[:, -1].set(
                     jnp.where(
                         mask,
-                        enforce_end_point[None, ...],
+                        enforce_endpoint[None, ...],
                         xs[:, -1]
                     )
                 )
             else:
                 # Original behavior for full enforcement
-                xs = xs.at[:, -1].set(enforce_end_point[None, ...])
+                xs = xs.at[:, -1].set(enforce_endpoint[None, ...])
             
         return SamplePath(
             name=f"{self.sde.__class__.__name__} sample path",
@@ -221,7 +208,7 @@ class SDESolver(abc.ABC):
         variables: Any,
         dWs: jnp.ndarray,
         batch_size: Optional[int] = 1,
-        enforce_end_point: Optional[jnp.ndarray] = None,
+        enforce_endpoint: Optional[jnp.ndarray] = None,
     ) -> SamplePath:
         if hasattr(self.sde, "G"):
             record_ll = True
@@ -259,22 +246,22 @@ class SDESolver(abc.ABC):
         x0_tiled = repeat(x0, "i -> b 1 i", b=batch_size)
         xs = jnp.concatenate([x0_tiled, xs], axis=1) 
         
-        if enforce_end_point is not None:
+        if enforce_endpoint is not None:
             # Check if enforce_end_point has fewer dimensions than xs
-            if enforce_end_point.size < xs.shape[-1]:
+            if enforce_endpoint.size < xs.shape[-1]:
                 # Create a boolean mask for the components to enforce
-                mask = ~jnp.isnan(enforce_end_point)
+                mask = ~jnp.isnan(enforce_endpoint)
                 # Only update the non-NaN components
                 xs = xs.at[:, -1].set(
                     jnp.where(
                         mask,
-                        enforce_end_point[None, ...],
+                        enforce_endpoint[None, ...],
                         xs[:, -1]
                     )
                 )
             else:
                 # Original behavior for full enforcement
-                xs = xs.at[:, -1].set(enforce_end_point[None, ...])
+                xs = xs.at[:, -1].set(enforce_endpoint[None, ...])
             
         return SamplePath(
             name=f"{self.sde.__class__.__name__} sample path",
@@ -299,41 +286,3 @@ class Euler(SDESolver):
         drift, nu = self.sde.f(t, x, variables)
         diffusion = self.sde.g(t, x)
         return x + drift * dt + jnp.einsum('i j, j -> i', diffusion, dW), nu
-    
-# class ModifiedEuler(SDESolver):
-#     # !!! NOTE: May not work now
-#     @partial(jax.jit, static_argnums=(0,))
-#     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
-#         drift = self.sde.f(t, x)
-#         next_t = t + dt
-#         scaling = jnp.sqrt((self.T - next_t) / (self.T - t))
-#         diffusion = scaling * self.sde.g(t, x)
-#         return x + drift * dt + diffusion @ dW
-    
-#     @partial(
-#         jax.jit,
-#         static_argnames=(
-#             'self',
-#             'training',
-#             'mutable'
-#         )
-#     )
-#     def step_with_variables(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, *, training: bool = False, mutable: Optional[Union[Tuple[str, ...], bool]] = None) -> jnp.ndarray:
-#         nn_kwargs = {"training": training}
-#         if mutable is not None:
-#             nn_kwargs["mutable"] = list(mutable) if isinstance(mutable, tuple) else mutable
-            
-#         drift = self.sde.f(t, x, variables, **nn_kwargs)
-#         next_t = t + dt
-#         scaling = jnp.sqrt((self.T - next_t) / (self.T - t))
-#         diffusion = scaling * self.sde.g(t, x, variables, **nn_kwargs)
-#         return x + drift * dt + diffusion @ dW
-
-# class RungeKutta(SDESolver):
-#     @partial(jax.jit, static_argnums=(0,))
-#     def step(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray) -> jnp.ndarray:
-#         raise NotImplementedError("Runge-Kutta method not implemented")
-    
-#     @partial(jax.jit, static_argnums=(0,))
-#     def step_with_variables(self, x: jnp.ndarray, t: float, dt: float, dW: jnp.ndarray, variables: Any, **nn_forward_kwargs) -> jnp.ndarray:
-#         raise NotImplementedError("Runge-Kutta method not implemented") 

@@ -13,7 +13,9 @@ import jax
 import jax.numpy as jnp
 from einops import repeat, rearrange
 from tqdm.auto import tqdm
+import matplotlib.pyplot as plt
 
+DEFAULT_DTYPE = jnp.float32
 DEFAULT_SEED = 42
 DEFAULT_COLOR_WHEELS = [
     '#1f77b4',  # blue
@@ -36,3 +38,4 @@ DEFAULT_CMAP_WHEELS = [
     'PiYG',
     'PRGn',
 ]
+DEFAULT_FIGURE_SIZE = (10, 8)

@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib.collections import LineCollection
@@ -21,7 +20,6 @@ def plot_sample_path(
     linestyle: Optional[str] = "-",
     label: Optional[Union[str, Sequence[str]]] = None,
     title: Optional[Union[str, None]] = None,
-    save_path: Optional[Union[str, None]] = None,
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -53,17 +51,10 @@ def plot_sample_path(
         
         for i in range(n_plot_dims):
             ax.plot([], [], color=colors[i], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[i])
-        ax.legend(fontsize=16)
-    
-    ax.set_xlim(ts.min(), ts.max())
-    ax.set_xlabel(r'$t$', fontsize=16)
-    ax.set_ylabel(r'$X_t$', fontsize=16)
+        ax.legend(fontsize=16, loc="upper left")
     
     if title is not None:
         ax.set_title(title)
-    
-    if save_path is not None:
-        fig.savefig(save_path, dpi=300)
     
     return ax
 
@@ -79,7 +70,6 @@ def plot_mcmc_sample_path(
     label: Optional[Union[str, Sequence[str]]] = None,
     title: Optional[Union[str, None]] = None,
     n_iters: Optional[int] = 1000,
-    save_path: Optional[Union[str, None]] = None,
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -127,17 +117,10 @@ def plot_mcmc_sample_path(
         sm = plt.cm.ScalarMappable(cmap=cmaps[k], norm=norm)
         sm.set_array([])
         label_text = f"Component {d+1}" if label is None else labels[k]
-        plt.colorbar(sm, ax=ax, label=f"{label_text} iteration", pad=0.01 + 0.03*k)
-    
-    ax.set_xlim(ts.min(), ts.max())
-    ax.set_xlabel(r'$t$', fontsize=16)
-    ax.set_ylabel(r'$X_t$', fontsize=16)
+        plt.colorbar(sm, ax=ax, label=f"{label_text} iterations", pad=0.01 + 0.03*k)
     
     if title is not None:
         ax.set_title(title)
-    
-    if save_path is not None:
-        fig.savefig(save_path, dpi=300)
     
     return ax
 
@@ -220,8 +203,6 @@ def plot_landmark_sample_path(
                 lc.set_linewidth(linewidth)
                 ax.add_collection(lc)
                 
-        ax.set_xlabel(r'$t$')
-        ax.set_ylabel(r'$X_t$')
         x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()
         t_max, t_min = ts.max(), ts.min()
         x_padding = 0.2 * (x_max - x_min)
@@ -248,8 +229,6 @@ def plot_landmark_sample_path(
                 lc.set_linewidth(linewidth)
                 ax.add_collection(lc)
                 
-        ax.set_xlabel(r'$x$')
-        ax.set_ylabel(r'$y$') 
         x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()
         y_max, y_min = xs_landmarks[..., 1].max(), xs_landmarks[..., 1].min()
         x_padding = 0.2 * (x_max - x_min)
@@ -274,10 +253,6 @@ def plot_landmark_sample_path(
                 lc.set_array(ts)
                 lc.set_linewidth(linewidth)
                 ax.add_collection(lc)
-        
-        ax.set_xlabel(r'$x$')
-        ax.set_ylabel(r'$y$')
-        ax.set_zlabel(r'$z$')
         
         x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()   
         y_max, y_min = xs_landmarks[..., 1].max(), xs_landmarks[..., 1].min()   

@@ -31,29 +31,29 @@ class NeuralBridge:
     X_circ: GuidedBridgeProcess
     X_diamond: NeuralBridgeProcess
     neural_net: nn.Module
-    train_config: dict
+    config: dict
     
-    def __init__(self, X_circ: GuidedBridgeProcess, neural_net: nn.Module, train_config: dict):
+    def __init__(self, X_circ: GuidedBridgeProcess, neural_net: nn.Module, config: dict):
         self.X_circ = X_circ
         self.X_diamond = NeuralBridgeProcess(X_circ, neural_net)
         self.neural_net = neural_net
         
         # Training parameters
-        self.save_name = train_config.get("save_name", "default_model")
-        self.seed = train_config.get("seed", 42)
-        self.learning_rate = train_config.get("learning_rate", 1e-3)
-        self.batch_size = train_config.get("batch_size", 128)
-        self.n_iters = train_config.get("n_iters", 1000)
-        self.n_epochs = train_config.get("n_epochs", 10)
-        self.ema_decay = train_config.get("ema_decay", None)
-        self.optimizer_name = train_config.get("optimizer", "adam")
-        self.warmup_steps = train_config.get("warmup_steps", 0)
-        self.clip_norm = train_config.get("clip_norm", None)
+        self.save_name = config.get("save_name", "default_model")
+        self.seed = config.get("seed", DEFAULT_SEED)
+        self.learning_rate = config.get("learning_rate", 1e-3)
+        self.batch_size = config.get("batch_size", 128)
+        self.n_iters = config.get("n_iters", 1000)
+        self.n_epochs = config.get("n_epochs", 10)
+        self.ema_decay = config.get("ema_decay", None)
+        self.optimizer_name = config.get("optimizer", "adam")
+        self.warmup_steps = config.get("warmup_steps", 0)
+        self.clip_norm = config.get("clip_norm", None)
         
         self.W = None
-        self.path_solver = None
+        self.solver = None
         self._initialize_model()
-
+    
     def _initialize_model(self) -> None:
         self.init_rng_key = jax.random.PRNGKey(self.seed)
         dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.X_circ.dim))
@@ -101,34 +101,34 @@ class NeuralBridge:
             rng_key=self.init_rng_key if self.state is None else self.state.rng_key,
         )
     
-    def initialize_path_solver(self, W: WienerProcess) -> None:
+    def initialize_solver(self, W: WienerProcess) -> None:
         self.W = W
-        self.path_solver = Euler(
+        self.solver = Euler(
             sde=self.X_diamond,
             W=W
         )
     
     @partial(jax.jit, static_argnums=(0))
-    def _compute_loss(self, params, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
-        path = self.path_solver.solve_with_variables(
-            x0=u,
+    def _compute_loss(self, params, dWs: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
+        path = self.solver.solve_with_variables(
+            x0=self.X_circ.u,
             variables={
                 "params": params,
             },
             dWs=dWs,
             batch_size=self.batch_size,
-            enforce_end_point=v,
+            enforce_endpoint=self.X_circ.v_,
         )
         log_ll, nus = path.log_ll, path.nus
-        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.path_solver.dt - log_ll # (b, )
+        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.solver.dt - log_ll # (b, )
         loss = jnp.mean(loss, axis=0)
         return loss
     
     @partial(jax.jit, static_argnums=(0))
-    def _train_step(self, state, dWs: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray) -> Tuple[TrainState, jnp.ndarray]:
+    def _train_step(self, state, dWs: jnp.ndarray) -> Tuple[TrainState, jnp.ndarray]:
         
         def loss_fn(params):
-            loss = self._compute_loss(params, dWs, u, v)
+            loss = self._compute_loss(params, dWs)
             return loss
         
         loss, grads = jax.value_and_grad(loss_fn, has_aux=False)(state.params)
@@ -137,23 +137,17 @@ class NeuralBridge:
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
         return state, loss
     
-    def train(self, u: jnp.ndarray, v: jnp.ndarray, mode: str = "train", epoch: Optional[int] = None) -> Optional[jnp.ndarray]:
+    def train(self, mode: str = "train", epoch: Optional[int] = None) -> Optional[jnp.ndarray]:
         if mode == "train":
-            assert self.path_solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(W)"
+            assert self.solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(W)"
             self._initialize_optimizer()
             start_epoch = 1
-        
-        # !!! NOTE: Right now, the resume mode is not working
-        elif mode == "resume":
-            assert epoch is not None, "epoch must be specified for resume mode"
-            self._load_checkpoint(epoch)
-            start_epoch = epoch + 1  # Start from the next epoch
-            logging.info(f"Resuming training from epoch {epoch}")
-            
         elif mode == "pretrained":
             self._load_checkpoint(epoch)
             logging.info(f"Loading pretrained model from the last epoch")
             return None
+        else:
+            raise ValueError(f"Mode {mode} not supported")
         
         losses = []
         epoch_bar = tqdm(range(start_epoch, start_epoch + self.n_epochs), desc="Training epochs", unit="epoch")
@@ -163,8 +157,8 @@ class NeuralBridge:
             iter_bar = tqdm(range(self.n_iters), desc=f"Epoch {epoch}", unit="iter", leave=False)
             for _ in iter_bar:
                 
-                dWs = self.W.sample_path(self.state.rng_key, batch_size=self.batch_size).dxs
-                self.state, loss = self._train_step(self.state, dWs, u, v)
+                dWs = self.W.sample(rng_key=self.state.rng_key, batch_size=self.batch_size)
+                self.state, loss = self._train_step(self.state, dWs)
                 
                 losses.append(loss)
                 epoch_losses.append(loss)
@@ -177,11 +171,11 @@ class NeuralBridge:
             self._save_checkpoint(epoch) 
             
         losses = jnp.array(losses)
-        jnp.save(os.path.join("../assets/ckpts/neuralbridge", f"{self.save_name}", "losses.npy"), losses)
+        jnp.save(os.path.join("../assets/ckpts/neural_bridge", f"{self.save_name}", "losses.npy"), losses)
         
         return losses
     
-    def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
+    def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neural_bridge") -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         if not os.path.exists(absolute_save_dir):
@@ -198,7 +192,7 @@ class NeuralBridge:
                 },
                 step=epoch,
                 prefix=f"epoch_",
-                keep=3,
+                keep=1000,
                 overwrite=True
             )
             logging.info(f"Checkpoint saved to {ckpt}")
@@ -207,7 +201,7 @@ class NeuralBridge:
             logging.error(f"Error saving checkpoint: {e}")
             return e
 
-    def _load_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neuralbridge") -> None:
+    def _load_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/neural_bridge") -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         ckpt = checkpoints.restore_checkpoint(
@@ -230,15 +224,15 @@ class NeuralBridge:
         logging.info(f"Checkpoint loaded from {absolute_save_dir}")
         return None
     
-    def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_end_point: Optional[jnp.ndarray] = None) -> SamplePath:
-        dWs = self.W.sample_path(rng_key, batch_size=batch_size).dxs
-        path = self.path_solver.solve_with_variables(
+    def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_endpoint: Optional[jnp.ndarray] = None) -> SamplePath:
+        dWs = self.W.sample(rng_key, batch_size)
+        path = self.solver.solve_with_variables(
             x0=x0,
             variables={
                 "params": self.state.params,
             },
             dWs=dWs,
             batch_size=batch_size,
-            enforce_end_point=enforce_end_point,
+            enforce_endpoint=enforce_endpoint,
         )
         return path
