@@ -153,3 +153,53 @@ class ScoreNetwork(nn.Module):
         )(h)  # size (N, dimension)
 
         return out
+
+class NetworkFactory:
+    def __init__(self, config: dict):
+        self.config = config
+        
+    def create(self) -> nn.Module:
+        mlp_type = self.config.get("mlp_type", "mlp")
+        out_dim = self.config.get("out_dim")
+        hidden_dims = self.config.get("hidden_dims")
+        activation = self.config.get("activation", "tanh")
+        dtype = self.config.get("dtype", jnp.float32)
+        
+        if mlp_type == "mlp_small":
+            return MLPSmall(
+                out_dim=out_dim,
+                hidden_dims=hidden_dims, 
+                activation=activation,
+                dtype=dtype
+            )
+        elif mlp_type == "mlp":
+            t_emb_dim = self.config.get("t_emb_dim", 32)
+            t_emb_max_period = self.config.get("t_emb_max_period", 100.0)
+            t_emb_scaling = self.config.get("t_emb_scaling", 100.0)
+            norm = self.config.get("norm", "batch")
+            
+            return MLP(
+                out_dim=out_dim,
+                hidden_dims=hidden_dims,
+                activation=activation,
+                t_emb_dim=t_emb_dim,
+                t_emb_max_period=t_emb_max_period,
+                t_emb_scaling=t_emb_scaling,
+                norm=norm,
+                dtype=dtype
+            )
+        elif mlp_type == "score":
+            pos_dim = self.config.get("pos_dim", 32)
+            encoder_layers = self.config.get("encoder_layers", (128, 128))
+            decoder_layers = self.config.get("decoder_layers", (128, 128))
+            
+            return ScoreNetwork(
+                dimension=out_dim,
+                pos_dim=pos_dim,
+                encoder_layers=encoder_layers,
+                decoder_layers=decoder_layers,
+                activation=activation,
+                dtype=dtype
+            )
+        else:
+            raise ValueError(f"Unknown MLP type: {mlp_type}")

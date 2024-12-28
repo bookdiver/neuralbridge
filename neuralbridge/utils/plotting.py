@@ -7,7 +7,7 @@ import scienceplots
 from neuralbridge.setups import *
 from neuralbridge.utils.sample_path import SamplePath
 
-plt.style.use(["science", "no-latex", "grid"])
+plt.style.use(["science", "grid"])
 plt.rc('axes', prop_cycle=plt.cycler(color=DEFAULT_COLOR_WHEELS))
 
 def plot_sample_path(
@@ -18,6 +18,7 @@ def plot_sample_path(
     alpha: Optional[float] = 0.7,
     linewidth: Optional[float] = 1.0,
     linestyle: Optional[str] = "-",
+    zorder: Optional[int] = 1,
     label: Optional[Union[str, Sequence[str]]] = None,
     title: Optional[Union[str, None]] = None,
 ):
@@ -50,8 +51,7 @@ def plot_sample_path(
             labels = label
         
         for i in range(n_plot_dims):
-            ax.plot([], [], color=colors[i], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[i])
-        ax.legend(fontsize=16, loc="upper left")
+            ax.plot([], [], color=colors[i], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[i], zorder=zorder)
     
     if title is not None:
         ax.set_title(title)

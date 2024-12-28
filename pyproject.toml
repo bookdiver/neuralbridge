@@ -16,6 +16,7 @@ dependencies = [
     "pytest",
     "tqdm",
     "einops",
+    "omegaconf"
 ]
 
 [project.optional-dependencies]

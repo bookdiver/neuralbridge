@@ -98,25 +98,31 @@ def run_cell_neural_bridge(mode: str = "train", conditional: str = "normal_event
         X_solver = Euler(X, W)
         X_path = X_solver.solve(x0=u, rng_key=main_rng_key, batch_size=100_000)
         # Create masks for each component's end point conditions
-        x1_mask = (X_path.xs[:, -1, 0] >= v[0] - 1e-5) & (X_path.xs[:, -1, 0] <= v[0] + 1e-5)
-        x2_mask = (X_path.xs[:, -1, 1] >= v[1] - 1e-5) & (X_path.xs[:, -1, 1] <= v[1] + 1e-5)
+        x1_mask = (X_path.xs[:, -1, 0] >= v[0] - 1e-2) & (X_path.xs[:, -1, 0] <= v[0] + 1e-2)
+        x2_mask = (X_path.xs[:, -1, 1] >= v[1] - 1e-2) & (X_path.xs[:, -1, 1] <= v[1] + 1e-2)
         final_mask = x1_mask & x2_mask
         X_star_path = X_path[final_mask]
-        logging.info(f"Found {X_star_path.n_samples} samples that satisfy the endpoint conditions out of {X_path.n_samples} samples")
+        print(f"Found {X_star_path.n_samples} samples that satisfy the endpoint conditions out of {X_path.n_samples} samples")
         
         # Plot the results
         fig1, ax1 = plt.subplots(1, 1, figsize=(8, 4), layout="constrained")
-        plot_sample_path(X_diamond_path, ax1, label=[r"$X_{t,1}$", r"$X_{t,2}$"], title="Neural Bridge", linewidth=1.5)
-        plot_sample_path(X_star_path, ax1, colors=["grey", "grey"], alpha=0.5, linewidth=1.5)
+        plot_sample_path(X_star_path[:16], ax1, colors=["grey", "grey"], alpha=0.5, linewidth=1.5, zorder=1)
+        plot_sample_path(X_diamond_path, ax1, label=[r"$X_{t,1}$", r"$X_{t,2}$"], title="Neural Bridge", linewidth=1.5, zorder=2)
+
         ax1.set_xlabel(r"$t$", fontsize=14)
         ax1.set_ylabel(r"$X_t$", fontsize=14)
         fig1.savefig(f"../assets/figures/cell_model/{conditional}_neural_bridge.pdf", dpi=300)
         
-        X_diamond_path_hist = X_diamond.solve(x0=u, rng_key=main_rng_key, batch_size=1000)
-        fig2, ax2 = plt.subplots(2, 1, figsize=(8, 6), layout="constrained")
-        plot_sample_path_histogram(X_diamond_path_hist, plot_dim=0, ax=ax2[0], title=r"$X_{t,1}$", norm="linear")
-        plot_sample_path_histogram(X_diamond_path_hist, plot_dim=1, ax=ax2[1], title=r"$X_{t,2}$", norm="linear")
-        fig2.savefig(f"../assets/figures/cell_model/{conditional}_neural_bridge_histogram.pdf", dpi=300)
+        if conditional == "multi_modality":
+            X_diamond_path_hist = X_diamond.solve(x0=u, rng_key=main_rng_key, batch_size=1000)
+            fig2, ax2 = plt.subplots(2, 1, figsize=(8, 6), layout="constrained")
+            plot_sample_path_histogram(X_diamond_path_hist, plot_dim=0, ax=ax2[0], title=r"$X_{t,1}$", norm="linear")
+            plot_sample_path_histogram(X_diamond_path_hist, plot_dim=1, ax=ax2[1], title=r"$X_{t,2}$", norm="linear")
+            fig2.savefig(f"../assets/figures/cell_model/{conditional}_neural_bridge_histogram.pdf", dpi=300)
+            
+            return (fig1, ax1), (fig2, ax2)
+        
+        return (fig1, ax1)
         
 def run_cell_guided_proposal(conditional: str = "normal_events"):
     T, u, v = get_events(conditional)
@@ -134,6 +140,16 @@ def run_cell_guided_proposal(conditional: str = "normal_events"):
         ts=jnp.arange(0, T + dt, dt)
     )
     
+    # Brute force to get the "true" conditional paths
+    X_solver = Euler(X, W)
+    X_path = X_solver.solve(x0=u, rng_key=main_rng_key, batch_size=100_000)
+    # Create masks for each component's end point conditions
+    x1_mask = (X_path.xs[:, -1, 0] >= v[0] - 1e-2) & (X_path.xs[:, -1, 0] <= v[0] + 1e-2)
+    x2_mask = (X_path.xs[:, -1, 1] >= v[1] - 1e-2) & (X_path.xs[:, -1, 1] <= v[1] + 1e-2)
+    final_mask = x1_mask & x2_mask
+    X_star_path = X_path[final_mask]
+    print(f"Found {X_star_path.n_samples} samples that satisfy the endpoint conditions out of {X_path.n_samples} samples")
+    
     pCN_config = {
         "rho": 0.98,
         "batch_size": 16,
@@ -143,24 +159,30 @@ def run_cell_guided_proposal(conditional: str = "normal_events"):
     pCN_model.initialize_solver(W)
     _, pCN_result = pCN_model.run()
     
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4), layout="constrained")
-    plot_sample_path(pCN_result.path, ax, label=[r"$X_{t,1}$", r"$X_{t,2}$"], title="Guided Proposal", linewidth=1.5)
-    ax.set_xlabel(r"$t$", fontsize=14)
-    ax.set_ylabel(r"$X_t$", fontsize=14)
-    fig.savefig(f"../assets/figures/cell_model/{conditional}_guided_proposal.pdf", dpi=300)
+    fig1, ax1 = plt.subplots(1, 1, figsize=(8, 4), layout="constrained")
+    plot_sample_path(X_star_path[:16], ax1, colors=["grey", "grey"], alpha=0.5, linewidth=1.5, zorder=1)
+    plot_sample_path(pCN_result.path, ax1, label=[r"$X_{t,1}$", r"$X_{t,2}$"], title="Guided Proposal", linewidth=1.5, zorder=2)
+    ax1.set_xlabel(r"$t$", fontsize=14)
+    ax1.set_ylabel(r"$X_t$", fontsize=14)
+    fig1.savefig(f"../assets/figures/cell_model/{conditional}_guided_proposal.pdf", dpi=300)
     
-    pCN_config = {
-        "rho": 0.98,
-        "batch_size": 1000,
-        "n_iters": 5000
-    }
-    pCN_model = pCN.PreconditionedCrankNicolson(X_circ=X_circ, config=pCN_config)
-    pCN_model.initialize_solver(W)
-    _, pCN_result_hist = pCN_model.run()
-    fig2, ax2 = plt.subplots(2, 1, figsize=(8, 6), layout="constrained")
-    plot_sample_path_histogram(pCN_result_hist.path, plot_dim=0, ax=ax2[0], title=r"$X_{t,1}$", norm="linear")
-    plot_sample_path_histogram(pCN_result_hist.path, plot_dim=1, ax=ax2[1], title=r"$X_{t,2}$", norm="linear")
-    fig2.savefig(f"../assets/figures/cell_model/{conditional}_guided_proposal_histogram.pdf", dpi=300)
+    if conditional == "multi_modality":
+        pCN_config = {
+            "rho": 0.98,
+            "batch_size": 1000,
+            "n_iters": 5000
+        }
+        pCN_model = pCN.PreconditionedCrankNicolson(X_circ=X_circ, config=pCN_config)
+        pCN_model.initialize_solver(W)
+        _, pCN_result_hist = pCN_model.run()
+        fig2, ax2 = plt.subplots(2, 1, figsize=(8, 6), layout="constrained")
+        plot_sample_path_histogram(pCN_result_hist.path, plot_dim=0, ax=ax2[0], title=r"$X_{t,1}$", norm="linear")
+        plot_sample_path_histogram(pCN_result_hist.path, plot_dim=1, ax=ax2[1], title=r"$X_{t,2}$", norm="linear")
+        fig2.savefig(f"../assets/figures/cell_model/{conditional}_guided_proposal_histogram.pdf", dpi=300)
+        
+        return (fig1, ax1), (fig2, ax2)
+    
+    return (fig1, ax1)
     
 def run_cell_score_matching(mode: str = "train", conditional: str = "normal_events"):
     T, u, v = get_events(conditional)
@@ -220,12 +242,28 @@ def run_cell_score_matching(mode: str = "train", conditional: str = "normal_even
             enforce_endpoint=u
         )
         
+        # Brute force to get the "true" conditional paths
+        X_solver = Euler(X, W)
+        X_path = X_solver.solve(x0=u, rng_key=main_rng_key, batch_size=100_000)
+        # Create masks for each component's end point conditions
+        x1_mask = (X_path.xs[:, -1, 0] >= v[0] - 1e-2) & (X_path.xs[:, -1, 0] <= v[0] + 1e-2)
+        x2_mask = (X_path.xs[:, -1, 1] >= v[1] - 1e-2) & (X_path.xs[:, -1, 1] <= v[1] + 1e-2)
+        final_mask = x1_mask & x2_mask
+        X_star_path = X_path[final_mask]
+        print(f"Found {X_star_path.n_samples} samples that satisfy the endpoint conditions out of {X_path.n_samples} samples")
+        
         fig, ax = plt.subplots(1, 1, figsize=(8, 4), layout="constrained")
-        plot_sample_path(Y_star_path, ax, label=[r"$X_{t,1}$", r"$X_{t,2}$"], title="Score Matching", linewidth=1.5)
+        plot_sample_path(X_star_path[:16], ax, colors=["grey", "grey"], alpha=0.5, linewidth=1.5, zorder=1)
+        ax.plot(Y_star_path.ts, Y_star_path.xs[:, ::-1, 0].T, color="C0", alpha=0.7, linewidth=1.5, zorder=2)
+        ax.plot(Y_star_path.ts, Y_star_path.xs[:, ::-1, 1].T, color="C1", alpha=0.7, linewidth=1.5, zorder=2)
+        ax.plot([], [], color="C0", alpha=0.7, linewidth=1.5, label=r"$X_{t,1}$")
+        ax.plot([], [], color="C1", alpha=0.7, linewidth=1.5, label=r"$X_{t,2}$")
+        ax.legend(fontsize=14)
         ax.set_xlabel(r"$t$", fontsize=14)
         ax.set_ylabel(r"$X_t$", fontsize=14)
-        ax.invert_xaxis()
         fig.savefig(f"../assets/figures/cell_model/{conditional}_score_matching.pdf", dpi=300)
+        
+        return (fig, ax)
 
 def run_cell_guided_proposal_with_logs(conditional: str = "normal_events"):
     T, u, v = get_events(conditional)
@@ -353,9 +391,22 @@ def run_cell_adjoint_forward(mode: str = "train", conditional: str = "normal_eve
         )(rng_keys, u, cell_sde, trained_score)
         ts = jnp.arange(0, T, dt)
         
+        # Brute force to get the "true" conditional paths
+        W = WienerProcess(T, dt, shape=(2, ))
+        X = CellDiffusionProcess(params=sde_params, T=T, dim=2) 
+        X_solver = Euler(X, W)
+        X_path = X_solver.solve(x0=u, rng_key=main_rng_key, batch_size=100_000)
+        # Create masks for each component's end point conditions
+        x1_mask = (X_path.xs[:, -1, 0] >= v[0] - 1e-2) & (X_path.xs[:, -1, 0] <= v[0] + 1e-2)
+        x2_mask = (X_path.xs[:, -1, 1] >= v[1] - 1e-2) & (X_path.xs[:, -1, 1] <= v[1] + 1e-2)
+        final_mask = x1_mask & x2_mask
+        X_star_path = X_path[final_mask]
+        print(f"Found {X_star_path.n_samples} samples that satisfy the endpoint conditions out of {X_path.n_samples} samples")
+        
         fig, ax = plt.subplots(1, 1, figsize=(8, 4), layout="constrained")
-        ax.plot(ts, xs_star[:, :, 0].T, color="C0", alpha=0.7, linewidth=1.5)
-        ax.plot(ts, xs_star[:, :, 1].T, color="C1", alpha=0.7, linewidth=1.5)
+        plot_sample_path(X_star_path[:16], ax, colors=["grey", "grey"], alpha=0.5, linewidth=1.5, zorder=1)
+        ax.plot(ts, xs_star[:, :, 0].T, color="C0", alpha=0.7, linewidth=1.5, zorder=2)
+        ax.plot(ts, xs_star[:, :, 1].T, color="C1", alpha=0.7, linewidth=1.5, zorder=2)
         ax.plot([], [], color="C0", alpha=0.7, linewidth=1.5, label=r"$X_{t,1}$")
         ax.plot([], [], color="C1", alpha=0.7, linewidth=1.5, label=r"$X_{t,2}$")
         ax.legend(fontsize=14)
@@ -364,6 +415,7 @@ def run_cell_adjoint_forward(mode: str = "train", conditional: str = "normal_eve
         ax.set_title(r"Adjoint Forward")
         fig.savefig(f"../assets/figures/cell_model/{conditional}_adjoint_forward.pdf", dpi=300)
         
+        return (fig, ax)
     
 if __name__ == "__main__":
     args = args.parse_args()
@@ -378,3 +430,65 @@ if __name__ == "__main__":
         run_cell_score_matching(args.mode, args.conditional)
     elif args.method == "adjoint_forward":
         run_cell_adjoint_forward(args.mode, args.conditional)
+    elif args.method == "all":
+        fig_neural_bridge, ax_neural_bridge = run_cell_neural_bridge(args.mode, args.conditional)
+        fig_guided_proposal, ax_guided_proposal = run_cell_guided_proposal(args.conditional)
+        fig_score_matching, ax_score_matching = run_cell_score_matching(args.mode, args.conditional)
+        fig_adjoint_forward, ax_adjoint_forward = run_cell_adjoint_forward(args.mode, args.conditional)
+        
+        fig_all = plt.figure(figsize=(12, 8), layout="constrained")
+        gs = fig_all.add_gridspec(2, 2)
+        
+        # Neural Bridge subplot
+        ax_all1 = fig_all.add_subplot(gs[0, 0])
+        ax_all1.clear()
+        for line in ax_neural_bridge.lines:
+            ax_all1.plot(line.get_xdata(), line.get_ydata(), 
+                        color=line.get_color(), alpha=line.get_alpha(),
+                        linewidth=line.get_linewidth(), zorder=line.get_zorder(),
+                        label=line.get_label() if line.get_label() != "_nolegend_" else "")
+        ax_all1.set_xlabel(r"$t$", fontsize=14)
+        ax_all1.set_ylabel(r"$X_t$", fontsize=14)
+        ax_all1.set_title("Neural Bridge", fontsize=14)
+        ax_all1.legend(fontsize=12)
+        
+        # Guided Proposal subplot
+        ax_all2 = fig_all.add_subplot(gs[0, 1])
+        ax_all2.clear()
+        for line in ax_guided_proposal.lines:
+            ax_all2.plot(line.get_xdata(), line.get_ydata(),
+                        color=line.get_color(), alpha=line.get_alpha(),
+                        linewidth=line.get_linewidth(), zorder=line.get_zorder(),
+                        label=line.get_label() if line.get_label() != "_nolegend_" else "")
+        ax_all2.set_xlabel(r"$t$", fontsize=14)
+        ax_all2.set_ylabel(r"$X_t$", fontsize=14)
+        ax_all2.set_title("Guided Proposal", fontsize=14)
+        ax_all2.legend(fontsize=12)
+        
+        # Score Matching subplot
+        ax_all3 = fig_all.add_subplot(gs[1, 0])
+        ax_all3.clear()
+        for line in ax_score_matching.lines:
+            ax_all3.plot(line.get_xdata(), line.get_ydata(),
+                        color=line.get_color(), alpha=line.get_alpha(),
+                        linewidth=line.get_linewidth(), zorder=line.get_zorder(),
+                        label=line.get_label() if line.get_label() != "_nolegend_" else "")
+        ax_all3.set_xlabel(r"$t$", fontsize=14)
+        ax_all3.set_ylabel(r"$X_t$", fontsize=14)
+        ax_all3.set_title("Score Matching", fontsize=14)
+        ax_all3.legend(fontsize=12)
+        
+        # Adjoint Forward subplot
+        ax_all4 = fig_all.add_subplot(gs[1, 1])
+        ax_all4.clear()
+        for line in ax_adjoint_forward.lines:
+            ax_all4.plot(line.get_xdata(), line.get_ydata(),
+                        color=line.get_color(), alpha=line.get_alpha(),
+                        linewidth=line.get_linewidth(), zorder=line.get_zorder(),
+                        label=line.get_label() if line.get_label() != "_nolegend_" else "")
+        ax_all4.set_xlabel(r"$t$", fontsize=14)
+        ax_all4.set_ylabel(r"$X_t$", fontsize=14)
+        ax_all4.set_title("Adjoint Forward", fontsize=14)
+        ax_all4.legend(fontsize=12)
+        
+        fig_all.savefig(f"../assets/figures/cell_model/{args.conditional}_all_methods.pdf", dpi=300)

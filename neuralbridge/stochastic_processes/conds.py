@@ -34,8 +34,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
                  X_tilde: AuxiliaryProcess,
                  u: jnp.ndarray,
                  v: jnp.ndarray,
-                 L0: jnp.ndarray,
-                 Sigma0: jnp.ndarray,
+                 eps: float,
                  ts: jnp.ndarray,
                  ode_solver_kernel: str = "dopri5"
                  ):
@@ -48,11 +47,15 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
         
         self.v_ = v # could include nans to identify unobserved points
         self.v = self.v_[~jnp.isnan(self.v_)] 
-
+        
+        n_observed = len(self.v)
+        n_unobserved = len(self.u) - n_observed
+        L0 = jnp.concatenate([jnp.eye(n_observed), jnp.zeros((n_observed, n_unobserved))], axis=1)
+        
         self.backward_ode = BackwardODE(
             X_tilde=X_tilde, 
             L0=L0, 
-            Sigma0=Sigma0,
+            Sigma0=eps * jnp.eye(n_observed),
             mu0=jnp.zeros_like(self.v),
             kernel=ode_solver_kernel
         )
