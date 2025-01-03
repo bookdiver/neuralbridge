@@ -261,10 +261,10 @@ class FitzHughNagumoProcess(ContinuousTimeProcess):
         self.params = params
         
     def f(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
-        term1 = jnp.array([[1. / self.params["epsilon"], -1. / self.params["epsilon"]],
+        term1 = jnp.array([[1. / self.params["chi"], -1. / self.params["chi"]],
                            [self.params["gamma"],        -1.]], 
                             dtype=self.dtype)     # (2, 2)
-        term2 = jnp.array([(- x[0]**3 + self.params["s"]) / self.params["epsilon"], self.params["beta"]], dtype=self.dtype)     # (2,)
+        term2 = jnp.array([(- x[0]**3 + self.params["s"]) / self.params["chi"], self.params["alpha"]], dtype=self.dtype)     # (2,)
         return jnp.einsum("i j, j -> i", term1, x) + term2  # (2,)
     
     def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
@@ -281,19 +281,17 @@ class FitzHughNagumoAuxProcess(AuxiliaryProcess):
         self.params = params
         
     def B(self, t: jnp.ndarray) -> jnp.ndarray:
-        return jnp.array([[(1. - 3. * self.params["nu"]**2) / self.params["epsilon"], -1. / self.params["epsilon"]],
+        return jnp.array([[(1. - 3. * self.params["v"]**2) / self.params["chi"], -1. / self.params["chi"]],
                           [self.params["gamma"],                                         -1.]], 
                           dtype=self.dtype)     # (2, 2)
         
     def beta(self, t: jnp.ndarray) -> jnp.ndarray:
-        return jnp.array([(2. * self.params["nu"]**3 + self.params["s"]) / self.params["epsilon"],
-                          self.params["beta"]], 
+        return jnp.array([(2. * self.params["v"]**3 + self.params["s"]) / self.params["chi"],
+                          self.params["alpha"]], 
                           dtype=self.dtype)     # (2,)  
         
     def g(self, t: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
-        return jnp.array([[0.],
-                          [self.params["sigma"]]], 
-                         dtype=self.dtype)
+        return jnp.array([0., self.params["sigma"]], dtype=self.dtype).reshape(2, 1)
 
 
 class DoubleWellPotentialDiffusionProcess(ContinuousTimeProcess):

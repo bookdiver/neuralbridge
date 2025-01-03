@@ -109,7 +109,6 @@ def plot_mcmc_sample_path(
         
         for k in range(len(dims_to_plot)):
             ax.plot([], [], color=colors[k][-1], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[k])
-        ax.legend()
     
     # Add colorbars for each dimension
     for k, d in enumerate(dims_to_plot):
@@ -137,17 +136,20 @@ def plot_sample_path_histogram(
         fig, ax = plt.subplots(layout="constrained")
     else:
         fig = ax.figure
-    cmap = plt.get_cmap(cmap)
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+    else:
+        cmap = cmap
     cmap = cmap.with_extremes(bad=cmap(0))
     xs = sample_path.xs
     n_samples, n_steps, _ = xs.shape
     xs = xs[..., plot_dim]
     ts = sample_path.ts[len(sample_path.ts) - n_steps:]
-    ts_fine = np.linspace(ts.min(), ts.max(), 1000)
+    ts_fine = np.linspace(ts.min(), ts.max(), 2000, endpoint=False)
     xs_fine = np.concatenate([
         np.interp(ts_fine, ts, xs_row) for xs_row in xs
     ])
-    ts_fine = np.broadcast_to(ts_fine, (n_samples, 1000)).ravel()
+    ts_fine = np.broadcast_to(ts_fine, (n_samples, 2000)).ravel()
     h, t_edges, x_edges = np.histogram2d(ts_fine, xs_fine, bins=[n_steps, vertical_bins])
     pcm = ax.pcolormesh(t_edges, x_edges, h.T, cmap=cmap, norm=norm, vmax=n_samples/10., rasterized=True)
     fig.colorbar(pcm, ax=ax, label="no. of samples", pad=0.05)

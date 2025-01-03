@@ -1,0 +1,40 @@
+# SDE parameters
+sde:
+  dim: 2
+  T: 2.0
+  dt: 5.0e-3
+  params_X:
+    chi: 0.1
+    s: 0.0
+    gamma: 1.5
+    alpha: 0.8
+    sigma: 0.3
+  params_X_tilde:
+    chi: 0.1
+    s: 0.0
+    gamma: 1.5
+    alpha: 0.8
+    sigma: 0.3
+    v: -1.0
+  u: ["-0.5", "-0.6"]
+  v: ["-1.0", "nan"]
+  eps: 1.0e-4
+
+# network parameters
+network:
+  mlp_type: "mlp_small"
+  out_dim: 1
+  hidden_dims: [32, 32, 32, 32]
+  activation: "tanh"
+
+# Training parameters
+training:
+  save_name: "fhn_model_normal_partial_obs"
+  learning_rate: 5.0e-4
+  batch_size: 32
+  n_iters: 500
+  n_epochs: 15
+  ema_decay: 0.995
+  optimizer: "adam"
+  warmup_steps: 500
+  clip_norm: null

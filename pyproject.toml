@@ -15,6 +15,7 @@ dependencies = [
     "jupyter",
     "pytest",
     "tqdm",
+    "jax-tqdm",
     "einops",
     "omegaconf"
 ]

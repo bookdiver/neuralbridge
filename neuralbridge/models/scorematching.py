@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 from neuralbridge.setups import *
 from neuralbridge.stochastic_processes.unconds import ContinuousTimeProcess
 from neuralbridge.stochastic_processes.conds import ReversedBridgeProcess
+from neuralbridge.networks.mlps import NetworkFactory
 from neuralbridge.solvers.sde import WienerProcess, Euler
 
 @struct.dataclass
@@ -28,15 +29,11 @@ class TrainState(train_state.TrainState):
         )
 
 class ScoreMatchingReversedBridge:
-    X: ContinuousTimeProcess
-    neural_net: nn.Module
-    config: dict
 
     def __init__(self, 
                  X: ContinuousTimeProcess, 
                  u: jnp.ndarray,
                  v: jnp.ndarray,
-                 neural_net: nn.Module, 
                  config: dict):
         self.X = X
         
@@ -44,20 +41,26 @@ class ScoreMatchingReversedBridge:
         self.v_ = v
         self.v = jnp.where(~jnp.isnan(v), v, self.v_)
         
-        self.neural_net = neural_net
+        # Network parameters
+        network_config = config.get("network", {})
+        network_factory = NetworkFactory(network_config)
+        self.neural_net = network_factory.create()
         
         # Training parameters
-        self.save_name = config.get("save_name", "default_model")
-        self.seed = config.get("seed", DEFAULT_SEED)
-        self.learning_rate = config.get("learning_rate", 1e-3)
-        self.batch_size = config.get("batch_size", 128)
-        self.n_iters = config.get("n_iters", 1000)
-        self.n_epochs = config.get("n_epochs", 10)
-        self.ema_decay = config.get("ema_decay", None)
-        self.optimizer_name = config.get("optimizer", "adam")
-        self.warmup_steps = config.get("warmup_steps", 0)
-        self.clip_norm = config.get("clip_norm", None)
+        training_config = config.get("training", {})
+        self.save_name = training_config.get("save_name", "default_model")
+        self.seed = training_config.get("seed", DEFAULT_SEED)
+        self.learning_rate = training_config.get("learning_rate", 1e-3)
+        self.batch_size = training_config.get("batch_size", 128)
+        self.n_iters = training_config.get("n_iters", 1000)
+        self.n_epochs = training_config.get("n_epochs", 10)
+        self.ema_decay = training_config.get("ema_decay", None)
+        self.optimizer_name = training_config.get("optimizer", "adam")
+        self.warmup_steps = training_config.get("warmup_steps", 0)
+        self.clip_norm = training_config.get("clip_norm", None)
         
+        self.save_relative_dir = "../../assets/ckpts/score"
+        self.W = None
         self.solver = None
         self._initialize_model()
         
@@ -112,6 +115,7 @@ class ScoreMatchingReversedBridge:
         )
 
     def initialize_solver(self, W: WienerProcess) -> None:
+        self.W = W
         self.solver = Euler(
             sde=self.X,
             W=W
@@ -177,21 +181,23 @@ class ScoreMatchingReversedBridge:
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
         return state, loss
     
-    def train(self, mode: str = "train", epoch: Optional[int] = None) -> Optional[jnp.ndarray]:
+    def train(self, mode: str = "train", load_relative_dir: Optional[str] = None) -> Optional[jnp.ndarray]:
         if mode == "train":
             assert self.solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(wiener_proc)"
             self._initialize_optimizer()
             start_epoch = 1
         elif mode == "pretrained":
-            self._load_checkpoint(epoch)
+            if load_relative_dir is None:
+                load_relative_dir = self.save_relative_dir
+            self._load_checkpoint(load_relative_dir)
             logging.info(f"Loading pretrained model from the last epoch")
-            return None
+            losses = jnp.load(os.path.join(load_relative_dir, f"{self.save_name}", "losses.npy"))
+            return losses
         else:
             raise ValueError(f"Mode {mode} not supported")
         
         losses = []
-        epoch_bar = tqdm(range(start_epoch, start_epoch + self.n_epochs), desc="Training epochs", unit="epoch")
-        for epoch in epoch_bar:
+        for epoch in range(start_epoch, start_epoch + self.n_epochs):
             epoch_losses = []
             
             iter_bar = tqdm(range(self.n_iters), desc=f"Epoch {epoch}", unit="iter", leave=False)
@@ -205,17 +211,16 @@ class ScoreMatchingReversedBridge:
                 iter_bar.set_postfix({"loss": f"{loss:>7.5f}"})
                 
             epoch_avg_loss = jnp.mean(jnp.array(epoch_losses))
-            epoch_bar.set_postfix({"avg_loss": f"{epoch_avg_loss:>7.5f}"})
             logging.info(f"Epoch {epoch} average loss: {epoch_avg_loss:>7.5f}")
             
             self._save_checkpoint(epoch)
         
         losses = jnp.array(losses)
-        jnp.save(os.path.join("../assets/ckpts/score_matching", f"{self.save_name}", "losses.npy"), losses)
+        jnp.save(os.path.join(self.save_relative_dir, f"{self.save_name}", "losses.npy"), losses)
         return losses
     
-    def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/score_matching") -> None:
-        save_dir = os.path.join(relative_dir, f"{self.save_name}")
+    def _save_checkpoint(self, epoch: int) -> None:
+        save_dir = os.path.join(self.save_relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         if not os.path.exists(absolute_save_dir):
             os.makedirs(absolute_save_dir)
@@ -232,7 +237,7 @@ class ScoreMatchingReversedBridge:
                 },
                 step=epoch,
                 prefix=f"epoch_",
-                keep=1000,
+                keep=1,
                 overwrite=True
             )
             logging.info(f"Checkpoint saved to {ckpt}")
@@ -241,13 +246,13 @@ class ScoreMatchingReversedBridge:
             logging.error(f"Error saving checkpoint: {e}")
             return e
         
-    def _load_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../assets/ckpts/score_matching") -> None:
-        save_dir = os.path.join(relative_dir, f"{self.save_name}")
+    def _load_checkpoint(self, load_relative_dir: str) -> None:
+        save_dir = os.path.join(load_relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         ckpt = checkpoints.restore_checkpoint(
             ckpt_dir=absolute_save_dir,
             target=None,
-            step=epoch,
+            step=None,
             prefix=f"epoch_"
         )
         if self.state is None:

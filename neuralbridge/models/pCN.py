@@ -93,7 +93,7 @@ class PreconditionedCrankNicolson:
     @partial(jax.jit, static_argnums=(0, 1))
     def _run_loop_no_logging(self, n_iters: int, init_state: RunState) -> RunState:
         
-        @loop_tqdm(n_iters, print_rate=1)
+        @loop_tqdm(n_iters, print_rate=1, desc="Running pCN", tqdm_type="std")
         def body_fun(i: int, run_state: RunState) -> RunState:
             run_state = self.run_step(run_state)
             next_log_lls = run_state.log_lls.at[i+1].set(run_state.path.log_ll)

@@ -52,6 +52,7 @@ class NeuralBridge:
         self.warmup_steps = training_config.get("warmup_steps", 0)
         self.clip_norm = training_config.get("clip_norm", None)
         
+        self.save_relative_dir = "../../assets/ckpts/neurb"
         self.W = None
         self.solver = None
         self._initialize_model()
@@ -145,6 +146,8 @@ class NeuralBridge:
             self._initialize_optimizer()
             start_epoch = 1
         elif mode == "pretrained":
+            if load_relative_dir is None:
+                load_relative_dir = self.save_relative_dir
             self._load_checkpoint(load_relative_dir)
             logging.info(f"Loading pretrained model from the last epoch")
             losses = jnp.load(os.path.join(load_relative_dir, f"{self.save_name}", "losses.npy"))
@@ -171,12 +174,12 @@ class NeuralBridge:
             self._save_checkpoint(epoch) 
             
         losses = jnp.array(losses)
-        jnp.save(os.path.join("../../assets/ckpts/neural_bridge", f"{self.save_name}", "losses.npy"), losses)
+        jnp.save(os.path.join(self.save_relative_dir, f"{self.save_name}", "losses.npy"), losses)
         
         return losses
     
-    def _save_checkpoint(self, epoch: int, relative_dir: Optional[str] = "../../assets/ckpts/neural_bridge") -> None:
-        save_dir = os.path.join(relative_dir, f"{self.save_name}")
+    def _save_checkpoint(self, epoch: int) -> None:
+        save_dir = os.path.join(self.save_relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         if not os.path.exists(absolute_save_dir):
             os.makedirs(absolute_save_dir)
@@ -201,7 +204,7 @@ class NeuralBridge:
             logging.error(f"Error saving checkpoint: {e}")
             return e
 
-    def _load_checkpoint(self, relative_dir: Optional[str] = "../../assets/ckpts/neural_bridge") -> None:
+    def _load_checkpoint(self, relative_dir: str) -> None:
         save_dir = os.path.join(relative_dir, f"{self.save_name}")
         absolute_save_dir = os.path.abspath(save_dir)
         ckpt = checkpoints.restore_checkpoint(

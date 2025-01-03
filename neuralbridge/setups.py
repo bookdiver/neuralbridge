@@ -12,10 +12,14 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from einops import repeat, rearrange
-from tqdm.auto import tqdm
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 DEFAULT_DTYPE = jnp.float32
+
+if DEFAULT_DTYPE == jnp.float64:
+    jax.config.update("jax_enable_x64", True)
+    
 DEFAULT_SEED = 42
 DEFAULT_COLOR_WHEELS = [
     '#1f77b4',  # blue

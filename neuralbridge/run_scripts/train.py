@@ -8,15 +8,14 @@ from read_config import read_config
 from neuralbridge.setups import *
 from neuralbridge.stochastic_processes.examples import *
 from neuralbridge.stochastic_processes.conds import GuidedBridgeProcess
-from neuralbridge.solvers.sde import WienerProcess, Euler
-from neuralbridge.networks.mlps import MLPSmall
+from neuralbridge.solvers.sde import WienerProcess
 from neuralbridge.models import neurb
 
 seed = DEFAULT_SEED
 main_rng_key = jax.random.PRNGKey(seed)
 
 args = argparse.ArgumentParser()
-args.add_argument("--model", type=str, default="brownian", choices=["brownian", "ou"])
+args.add_argument("--model", type=str, default="brownian", choices=["brownian", "ou", "cell_normal", "cell_rare", "cell_mm", "fhn_normal", "fhn_rare", "landmark_circle"])
 
 def get_model(model_name: str):
     if "brownian" in model_name.lower():

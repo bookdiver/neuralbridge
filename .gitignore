@@ -170,3 +170,4 @@ cython_debug/
 *.svg
 doc
 assets/ckpts
+.vscode

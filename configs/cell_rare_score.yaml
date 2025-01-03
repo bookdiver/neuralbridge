@@ -1,0 +1,33 @@
+# SDE parameters
+sde:
+  dim: 2
+  T: 4.0
+  dt: 1.0e-2
+  params_X:
+    alpha: 0.0625 
+    sigma: 0.1
+  u: ["0.1", "-0.1"]
+  v: ["1.0", "-0.1"]
+
+# network parameters
+network:
+  mlp_type: "mlp"
+  out_dim: 2
+  hidden_dims: [32, 32, 32, 32]
+  t_emb_dim: 32
+  t_emb_max_period: 100.0
+  t_emb_scaling: 100.0
+  norm: "batch"
+  activation: "tanh"
+
+# Training parameters
+training:
+  save_name: "cell_model_normal_sigma0.1" # Since in score matching, the learned score is independent of v, we can therefore use the same learned score for all the cases.
+  learning_rate: 5.0e-4
+  batch_size: 64
+  n_iters: 1000
+  n_epochs: 20
+  ema_decay: 0.995
+  optimizer: "adam"
+  warmup_steps: 1000
+  clip_norm: null

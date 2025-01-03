@@ -66,7 +66,7 @@ class GuidedBridgeProcess(ContinuousTimeProcess):
     
     def _find_t(self, t: float):
         t = t.squeeze() if t.ndim > 0 else t
-        return jnp.searchsorted(self.ts, t)
+        return jnp.searchsorted(self.ts, t, side="left")
 
     @partial(jax.jit, static_argnums=(0,))
     def r(self, t: float, x: jnp.ndarray) -> jnp.ndarray:
