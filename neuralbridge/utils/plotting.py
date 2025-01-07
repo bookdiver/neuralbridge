@@ -167,10 +167,22 @@ def plot_landmark_sample_path(
     ax: Optional[plt.Axes] = None,
     cmap: Optional[str] = "viridis",
     alpha: Optional[float] = 0.7,
-    scatter_size: Optional[float] = 50,
+    markersize: Optional[float] = 10,
+    show_intermediate_trajectories: Optional[bool] = True,
+    show_intermediate_shapes: Optional[bool] = False,
+    show_colorbar: Optional[bool] = True,
+    show_every: Optional[int] = 1,
     linewidth: Optional[float] = 1.0,
     title: Optional[str] = None,
+    
 ):
+    
+    def close_curve(x):
+        # x (n_landmarks, m_landmarks)
+        # x_closed (n_landmarks + 1, m_landmarks)
+        x_closed = jnp.concatenate([x, x[0:1, :]], axis=0)
+        return x_closed
+    
     if ax is None:
         if m_landmarks == 3:
             fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, layout="constrained")
@@ -186,63 +198,53 @@ def plot_landmark_sample_path(
     cmap = plt.get_cmap(cmap)
     colors = cmap(np.linspace(0, 1, len(ts)))
     
-    if m_landmarks == 1:
-        x0s = xs_landmarks[:, 0, :, 0]
-        xTs = xs_landmarks[:, -1, :, 0]
-        for i in range(xs_landmarks.shape[0]):
-            ax.scatter(jnp.zeros(xs_landmarks.shape[2]), x0s[i], color=colors[0], marker="o", s=scatter_size)
-            ax.scatter(jnp.ones(xs_landmarks.shape[2]) * ts[-1], xTs[i], color=colors[-1], marker="*", s=scatter_size)
-        
-        # Add 1D colored trajectories
-        for i in range(xs_landmarks.shape[0]):
-            for j in range(xs_landmarks.shape[2]):
-                points = jnp.array([ts, xs_landmarks[i, :, j, 0]]).T.reshape(-1, 1, 2)
-                segments = jnp.concatenate([points[:-1], points[1:]], axis=1)
-                norm = plt.Normalize(ts.min(), ts.max())
-                lc = LineCollection(segments, cmap=cmap, norm=norm, alpha=alpha)
-                
-                lc.set_array(ts)
-                lc.set_linewidth(linewidth)
-                ax.add_collection(lc)
-                
-        x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()
-        t_max, t_min = ts.max(), ts.min()
-        x_padding = 0.2 * (x_max - x_min)
-        t_padding = 0.2 * (t_max - t_min)
-        ax.set_xlim(t_min - t_padding, t_max + t_padding)
-        ax.set_ylim(x_min - x_padding, x_max + x_padding)
-        
-        fig.colorbar(lc, ax=ax, label=r'$time$', pad=0)
-    
-    elif m_landmarks == 2:
-        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=scatter_size)
-        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=scatter_size)
-        
+    if m_landmarks == 2:
+        start_xs, end_xs = xs_landmarks[:, 0, :], xs_landmarks[:, -1, :]
+
         # Plot trajectories for each sample
-        for i in range(xs_landmarks.shape[0]):
-            for j in range(xs_landmarks.shape[2]): 
-                x = xs_landmarks[i, :, j, 0]
-                points = jnp.array([x, xs_landmarks[i, :, j, 1]]).T.reshape(-1, 1, 2)
-                segments = jnp.concatenate([points[:-1], points[1:]], axis=1)
-                norm = plt.Normalize(ts.min(), ts.max())
-                lc = LineCollection(segments, cmap=cmap, norm=norm, alpha=alpha)
+        if show_intermediate_trajectories:
+            for i in range(xs_landmarks.shape[0]):
+                start_x_closed = close_curve(start_xs[i, :, :])
+                end_x_closed = close_curve(end_xs[i, :, :])
+                ax.plot(*start_x_closed.T, '-o', color=colors[0], alpha=1.0, linewidth=linewidth, markersize=markersize, label=r'$X_0$')
+                ax.plot(*end_x_closed.T, '-o', color=colors[-1], alpha=1.0, linewidth=linewidth, markersize=markersize, label=r'$X_T$')
+                for j in range(xs_landmarks.shape[2])[::show_every]: 
+                    x = xs_landmarks[i, :, j, 0]
+                    points = jnp.array([x, xs_landmarks[i, :, j, 1]]).T.reshape(-1, 1, 2)
+                    segments = jnp.concatenate([points[:-1], points[1:]], axis=1)
+                    norm = plt.Normalize(ts.min(), ts.max())
+                    mappable = LineCollection(segments, cmap=cmap, norm=norm, alpha=alpha)
+                    
+                    mappable.set_array(ts)
+                    mappable.set_linewidth(linewidth)
+                    ax.add_collection(mappable)
+                ax.legend()
+                    
+        if show_intermediate_shapes:
+            for i in range(xs_landmarks.shape[0]):
+                for j in range(xs_landmarks.shape[1])[::show_every]:
+                    x = xs_landmarks[i, j, :, :]
+                    x_closed = close_curve(x)
+                    ax.plot(*x_closed.T, color=colors[j], alpha=alpha, linewidth=linewidth)
+            
+            norm = plt.Normalize(ts.min(), ts.max())
+            mappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            mappable.set_array([])
+            
+        if show_colorbar:
+            fig.colorbar(mappable, ax=ax, label=r'$t$', pad=0)
+            
                 
-                lc.set_array(ts)
-                lc.set_linewidth(linewidth)
-                ax.add_collection(lc)
-                
-        x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()
-        y_max, y_min = xs_landmarks[..., 1].max(), xs_landmarks[..., 1].min()
-        x_padding = 0.2 * (x_max - x_min)
-        y_padding = 0.2 * (y_max - y_min)
-        ax.set_xlim(x_min - x_padding, x_max + x_padding)
-        ax.set_ylim(y_min - y_padding, y_max + y_padding)
+        # x_max, x_min = xs_landmarks[..., 0].max(), xs_landmarks[..., 0].min()
+        # y_max, y_min = xs_landmarks[..., 1].max(), xs_landmarks[..., 1].min()
+        # x_padding = 0.2 * (x_max - x_min)
+        # y_padding = 0.2 * (y_max - y_min)
+        # ax.set_xlim(x_min - x_padding, x_max + x_padding)
+        # ax.set_ylim(y_min - y_padding, y_max + y_padding)
         
-        fig.colorbar(lc, ax=ax, label=r'$time$', pad=0)
-    
     elif m_landmarks == 3:
-        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=scatter_size)
-        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=scatter_size)
+        ax.scatter(*xs_landmarks[:, 0, :].T, color=colors[0], marker="o", s=markersize)
+        ax.scatter(*xs_landmarks[:, -1, :].T, color=colors[-1], marker="*", s=markersize)
         
         # Plot trajectories for each sample
         for i in range(xs_landmarks.shape[0]):
@@ -274,4 +276,7 @@ def plot_landmark_sample_path(
     if title is not None:
         ax.set_title(title)
     
-    return ax
+    if not show_colorbar:
+        return ax, mappable
+    else:
+        return ax

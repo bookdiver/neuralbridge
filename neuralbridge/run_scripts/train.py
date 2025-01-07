@@ -15,7 +15,7 @@ seed = DEFAULT_SEED
 main_rng_key = jax.random.PRNGKey(seed)
 
 args = argparse.ArgumentParser()
-args.add_argument("--model", type=str, default="brownian", choices=["brownian", "ou", "cell_normal", "cell_rare", "cell_mm", "fhn_normal", "fhn_rare", "landmark_circle"])
+args.add_argument("--model", type=str, default="brownian", choices=["brownian", "ou", "cell_normal", "cell_rare", "cell_mm", "fhn_normal", "fhn_rare", "landmark_ellipse"])
 
 def get_model(model_name: str):
     if "brownian" in model_name.lower():
@@ -40,6 +40,10 @@ def get_model(model_name: str):
 
 def train_neural_bridge(model_name, config):
     X_cls, X_tilde_cls = get_model(model_name)
+    
+    u = jnp.array(config.sde.u)
+    v = jnp.array(config.sde.v)
+    
     X = X_cls(
         params=config.sde.params_X, 
         T=config.sde.T, 
@@ -50,16 +54,20 @@ def train_neural_bridge(model_name, config):
         T=config.sde.T, 
         dim=config.sde.dim
     )
+    
+    if "landmark" in model_name.lower():
+        X_tilde.init_g(v)
+        
     X_circ = GuidedBridgeProcess(
         X=X,
         X_tilde=X_tilde,
-        u=jnp.array(config.sde.u),
-        v=jnp.array(config.sde.v),
+        u=u,
+        v=v,
         eps=config.sde.eps,
         ts=jnp.arange(0, config.sde.T + config.sde.dt, config.sde.dt)
     )
     
-    W = WienerProcess(config.sde.T, config.sde.dt, shape=(config.sde.dim, ))
+    W = WienerProcess(config.sde.T, config.sde.dt, shape=(X.dim, ))
     X_diamond = neurb.NeuralBridge(
         X_circ=X_circ,
         config=config

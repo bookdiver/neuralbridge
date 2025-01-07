@@ -68,9 +68,8 @@ class MLP(nn.Module):
         return x
 
 # Modified MLP from https://github.com/jeremyhengjm/DiffusionBridge/blob/master/DiffusionBridge/neuralnet.py
-class ScoreLayer(nn.Module):
-    input_dim: int
-    layer_widths: Sequence[int]
+class MLPLayer(nn.Module):
+    hidden_dims: Sequence[int]
     activate_final: bool = False
     activation: str = "relu" 
     dtype: Optional[jnp.dtype] = jnp.float32
@@ -79,74 +78,57 @@ class ScoreLayer(nn.Module):
     def __call__(self, x: jnp.ndarray):
         activation_fn = get_activation(self.activation)
         
-        for i, width in enumerate(self.layer_widths[:-1]):
-            x = nn.Dense(width, dtype=self.dtype)(x)
+        for hidden_dim in self.hidden_dims[:-1]:
+            x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
             x = activation_fn(x)
             
-        x = nn.Dense(self.layer_widths[-1], dtype=self.dtype)(x)
+        x = nn.Dense(self.hidden_dims[-1], dtype=self.dtype)(x)
         if self.activate_final:
             x = activation_fn(x)
             
         return x
 
-class ScoreNetwork(nn.Module):
-    dimension: int
-    encoder_layers: Sequence[int] = (16,)
-    pos_dim: int = 16
-    decoder_layers: Sequence[int] = (128, 128)
+class MLPLarge(nn.Module):
+    out_dim: int
+    encoder_dims: Sequence[int] = (16,)
+    decoder_dims: Sequence[int] = (128, 128)
+    t_emb_dim: int = 16
+    t_emb_max_period: float = 10000.0
+    t_emb_scaling: float = 100.0
     activation: str = "leaky_relu"
     dtype: Optional[jnp.dtype] = jnp.float32
 
     @nn.compact
-    def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
-        """
-        Parameters
-        ----------
-        t : time step (N, 1)
-        x : state (N, dimension)
-                        
-        Returns
-        -------    
-        out :  score (N, dimension)
-        """
-        # Ensure x is 2D
-        if len(x.shape) == 1:
-            x = x[None, :]
-
-        t_emb_dim = self.pos_dim * 2
-
+    def __call__(self, t: jnp.ndarray, x: jnp.ndarray):
         # Time embedding
         t_emb = TimeEmbedding(
-            t_emb_dim=t_emb_dim,
-            scaling=100.0,
-            max_period=10000.0
+            self.t_emb_dim,
+            self.t_emb_max_period,
+            self.t_emb_scaling
         )(t)  # size (N, t_emb_dim)
 
         # Time encoder
-        t_emb = ScoreLayer(
-            input_dim=self.pos_dim,
-            layer_widths=list(self.encoder_layers) + [t_emb_dim],
+        t_emb = MLPLayer(
+            hidden_dims=list(self.encoder_dims) + [2 * self.t_emb_dim],
             activate_final=False,
             activation=self.activation,
             dtype=self.dtype
-        )(t_emb)  # size (N, t_enc_dim)
+        )(t_emb)  # size (N, 2 * t_emb_dim)
 
         # State encoder
-        x_emb = ScoreLayer(
-            input_dim=self.dimension,
-            layer_widths=list(self.encoder_layers) + [t_emb_dim],
+        x_emb = MLPLayer(
+            hidden_dims=list(self.encoder_dims) + [2 * self.t_emb_dim],
             activate_final=False,
             activation=self.activation,
             dtype=self.dtype
-        )(x)  # size (N, t_enc_dim)
+        )(x)  # size (N, 2 * t_emb_dim)
 
         # Concatenate embeddings
-        h = jnp.concatenate([x_emb, t_emb], axis=-1)  # size (N, 2 * t_enc_dim)
+        h = jnp.concatenate([x_emb, t_emb], axis=-1)  # size (N, 4 * t_emb_dim)
 
         # Final network
-        out = ScoreLayer(
-            input_dim=2 * t_emb_dim,
-            layer_widths=list(self.decoder_layers) + [self.dimension],
+        out = MLPLayer(
+            hidden_dims=list(self.decoder_dims) + [self.out_dim],
             activate_final=False,
             activation=self.activation,
             dtype=self.dtype
@@ -188,16 +170,20 @@ class NetworkFactory:
                 norm=norm,
                 dtype=dtype
             )
-        elif mlp_type == "score":
-            pos_dim = self.config.get("pos_dim", 32)
-            encoder_layers = self.config.get("encoder_layers", (128, 128))
-            decoder_layers = self.config.get("decoder_layers", (128, 128))
+        elif mlp_type == "mlp_large":
+            encoder_dims = self.config.get("encoder_dims", (16,))
+            decoder_dims = self.config.get("decoder_dims", (128, 128))
+            t_emb_dim = self.config.get("t_emb_dim", 32)
+            t_emb_max_period = self.config.get("t_emb_max_period", 100.0)
+            t_emb_scaling = self.config.get("t_emb_scaling", 100.0)
             
-            return ScoreNetwork(
-                dimension=out_dim,
-                pos_dim=pos_dim,
-                encoder_layers=encoder_layers,
-                decoder_layers=decoder_layers,
+            return MLPLarge(
+                out_dim=out_dim,
+                encoder_dims=encoder_dims,
+                decoder_dims=decoder_dims,
+                t_emb_dim=t_emb_dim,
+                t_emb_max_period=t_emb_max_period,
+                t_emb_scaling=t_emb_scaling,
                 activation=activation,
                 dtype=dtype
             )

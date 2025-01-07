@@ -30,4 +30,4 @@ training:
   ema_decay: 0.995
   optimizer: "adam"
   warmup_steps: 500
-  clip_norm: null
+  clip_norm: 1.0

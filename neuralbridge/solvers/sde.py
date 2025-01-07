@@ -131,7 +131,7 @@ class SDESolver(abc.ABC):
     def solve(
         self, 
         x0: jnp.ndarray, 
-        rng_key: Optional[jax.Array] = None, 
+        rng_key: Optional[jax.Array] = jax.random.PRNGKey(DEFAULT_SEED), 
         dWs: Optional[jnp.ndarray] = None, 
         batch_size: Optional[int] = 1,
         enforce_endpoint: Optional[jnp.ndarray] = None,
@@ -159,7 +159,6 @@ class SDESolver(abc.ABC):
             return new_state, x
         
         if dWs is None:
-            assert rng_key is not None, "Either dWs or rng_key must be provided"
             dWs = self.W.sample(rng_key, batch_size)
         else:
             assert dWs.shape[0] == batch_size, "Number of batches must match the shape of dWs"
