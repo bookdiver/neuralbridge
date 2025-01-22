@@ -15,6 +15,12 @@ def ellipse(n_landmarks: int, a: float = 1.0, b: float = 1.0, rotation: float = 
 
 def read_config(config_path):
     config = OmegaConf.load(config_path)
+    
+    if hasattr(config.training, "save_name"):
+        config.training.save_name += f"_{config.network.activation}_{config.sde.t_scheme}_{str(config.network.normalization_type)}_norm_{config.network.dropout_rate}_dropout_{config.training.optimizer}_opt"
+    else:
+        pass
+    
     if 'sde' in config:
         if 'n_landmarks' in config.sde:
             config.sde.u = ellipse(

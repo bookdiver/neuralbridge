@@ -1,28 +1,31 @@
 # SDE parameters
 sde:
-  n_landmarks: 32
+  name: landmark
+  n_landmarks: 50
   T: 1.0
   dt: 0.01
-  dim: null
-  params_X:
+  X_dim: 100
+  W_dim: 100
+  t_scheme: linear
+  params_X_unc:
     k_alpha: 0.3
     k_sigma: 0.5
-    n_landmarks: 32
+    n_landmarks: 50
     m_landmarks: 2
-  params_X_tilde:
+  params_X_aux:
     k_alpha: 0.3
     k_sigma: 0.5
-    n_landmarks: 32
+    n_landmarks: 50
     m_landmarks: 2
   u:
-    n_landmarks: 32
+    n_landmarks: 50
     a: 1.0
     b: 0.5
     rotation: 0.0
     shift_x: 0.0
     shift_y: 0.0
   v:
-    n_landmarks: 32
+    n_landmarks: 50
     a: 1.0
     b: 0.5
     rotation: 1.04719753333 # pi / 3 
@@ -33,22 +36,31 @@ sde:
 # network parameters
 network:
   mlp_type: "mlp_large"
-  out_dim: 64
-  encoder_dims: [64]
-  decoder_dims: [256, 128, 128]
+  out_dim: 100
+  encoder_dims: [128]
+  decoder_dims: [256, 256, 128]
   t_emb_dim: 32
   t_emb_max_period: 100.0
   t_emb_scaling: 100.0
   activation: "tanh"
+  normalization_type: null
+  dropout_rate: 0.0
 
 # Training parameters
 training:
-  save_name: "landmark_ellipse_32"
+  save_name: "landmark_ellipse_50"
   learning_rate: 7.0e-4
-  batch_size: 16
-  n_iters: 1500
+  batch_size: 8
+  n_iters_per_epoch: 1500
   n_epochs: 20
   ema_decay: 0.995
   optimizer: "adam"
-  warmup_steps: 1500
+  warmup_steps_ratio: 0.1
   clip_norm: 1.0
+
+
+# MCMC parameters
+mcmc:
+  eta: 0.9
+  n_chains: 4
+  n_iters: 20000

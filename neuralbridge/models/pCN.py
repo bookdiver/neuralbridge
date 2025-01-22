@@ -1,52 +1,67 @@
 from jax_tqdm import loop_tqdm
 
 from neuralbridge.setups import *
-from neuralbridge.utils.sample_path import SamplePath
-from neuralbridge.stochastic_processes.conds import GuidedBridgeProcess
+from neuralbridge.stochastic_processes.conds import (
+    GuidedBridgeProcess, NeuralBridgeProcess
+)
 from neuralbridge.solvers.sde import Euler, WienerProcess
+from neuralbridge.utils.sample_path import SamplePath
+from neuralbridge.utils.t_grid import TimeGrid
 
-RunState = namedtuple("RunState", ["path", "total_n_accepted", "log_lls","rng_key"])
+RunState = namedtuple("RunState", ["path", "total_n_accepted", "log_likelihood_ratio", "rng_key"])
 
 class PreconditionedCrankNicolson:
-    X_circ: GuidedBridgeProcess
-    config: dict
+    X: GuidedBridgeProcess | NeuralBridgeProcess
+    config: OmegaConf
     
-    def __init__(self, X_circ: GuidedBridgeProcess, config: dict):
-        self.X_circ = X_circ
+    def __init__(self, X: GuidedBridgeProcess | NeuralBridgeProcess, config: OmegaConf):
+        self.X = X
 
-        self.seed = config.get("seed", DEFAULT_SEED)
-        self.rho = config.get("rho", 0.98)
-        self.batch_size = config.get("batch_size", 32)
-        self.n_iters = config.get("n_iters", 1000)
+        # MCMC parameters
+        self.eta = config.mcmc.eta
+        self.n_chains = config.mcmc.n_chains
+        self.n_iters = config.mcmc.n_iters
         
-        self.W = None
-        self.solver = None
-
-    def initialize_solver(self, W: WienerProcess) -> None:
-        self.W = W
+        self.tGrid = TimeGrid(
+            T=config.sde.T,
+            dt=config.sde.dt,
+            t_scheme=config.sde.t_scheme
+        )
+        
+        self.is_neural_bridge = isinstance(self.X, NeuralBridgeProcess)
+        
+        self.W = WienerProcess(dim=config.sde.W_dim)
         self.solver = Euler(
-            sde=self.X_circ,
-            W=W
+            X=self.X,
+            W=self.W,
+            tGrid=self.tGrid
         )
 
     @partial(jax.jit, static_argnums=(0,))
     def run_step(self, run_state: RunState) -> RunState:
         current_path = run_state.path
         key1, key2, new_key = jax.random.split(run_state.rng_key, 3)
-        dZs = self.W.sample(rng_key=key1, batch_size=self.batch_size)
-        dWos = self.rho * current_path.dWs + jnp.sqrt(1 - self.rho**2) * dZs
+        dZs = self.W.sample(
+            rng_key=key1, 
+            dts=self.tGrid.dts,
+            batch_size=self.n_chains
+        )
+        dWos = self.eta * current_path.dWs + jnp.sqrt(1 - self.eta**2) * dZs
 
         proposed_path = self.solver.solve(
-            x0=self.X_circ.u, 
-            rng_key=None, 
+            x0=self.X.u, 
             dWs=dWos, 
-            batch_size=self.batch_size,
-            enforce_endpoint=self.X_circ.v_
+            batch_size=self.n_chains,
+            enforced_endpoint=None,
+            compute_log_likelihood_ratio=True,
+            correct_log_likelihood_ratio=self.is_neural_bridge,
+            nn_variables=FrozenDict({}),
+            training=False,
         )
-        log_ll_ratio = proposed_path.log_ll - current_path.log_ll
+        log_likelihood_ratio = proposed_path.log_likelihood_ratio - current_path.log_likelihood_ratio
 
-        log_u = jnp.log(jax.random.uniform(key2, shape=(self.batch_size,))) 
-        accepted = log_u < log_ll_ratio
+        log_u = jnp.log(jax.random.uniform(key2, shape=(self.n_chains,))) 
+        accepted = log_u < log_likelihood_ratio
         new_total_n_accepted = accepted + run_state.total_n_accepted
 
         def update_field(acc: jnp.ndarray, x_new: Union[SamplePath, jnp.ndarray], x_old: Union[SamplePath, jnp.ndarray]) -> Union[SamplePath, jnp.ndarray]:
@@ -75,8 +90,8 @@ class PreconditionedCrankNicolson:
             
             def run_with_logging(i, run_state):
                 run_state = self.run_step(run_state)
-                next_log_lls = run_state.log_lls.at[i+1].set(run_state.path.log_ll)
-                run_state = run_state._replace(log_lls=next_log_lls)
+                next_log_likelihood_ratio = run_state.log_likelihood_ratio.at[i+1].set(run_state.path.log_likelihood_ratio)
+                run_state = run_state._replace(log_likelihood_ratio=next_log_likelihood_ratio)
                 
                 if i % log_every == 0 or i == n_iters - 1:
                     logs.append(run_state)
@@ -96,31 +111,32 @@ class PreconditionedCrankNicolson:
         @loop_tqdm(n_iters, print_rate=1, desc="Running pCN", tqdm_type="std")
         def body_fun(i: int, run_state: RunState) -> RunState:
             run_state = self.run_step(run_state)
-            next_log_lls = run_state.log_lls.at[i+1].set(run_state.path.log_ll)
-            return run_state._replace(log_lls=next_log_lls)
+            next_log_likelihood_ratio = run_state.log_likelihood_ratio.at[i+1].set(run_state.path.log_likelihood_ratio)
+            return run_state._replace(log_likelihood_ratio=next_log_likelihood_ratio)
 
         final_state = jax.lax.fori_loop(0, n_iters, body_fun, init_state)
         return final_state
 
-    def run(self, log_every: Optional[int] = None) -> RunState:
-        assert self.W is not None and self.solver is not None, "Path solver and Wiener process must be initialized before running pCN, initialize them with .init_path_solver()"
-        rng_key = jax.random.PRNGKey(self.seed)
+    def run(self, rng_key: Optional[jax.Array] = DEFAULT_RNG_KEY, log_every: Optional[int] = None) -> RunState:
         key1, key2 = jax.random.split(rng_key)
-        init_dWs = self.W.sample(rng_key=key1, batch_size=self.batch_size)
+        init_dWs = self.W.sample(rng_key=key1, dts=self.tGrid.dts, batch_size=self.n_chains)
         init_path = self.solver.solve(
-            x0=self.X_circ.u, 
-            rng_key=None, 
+            x0=self.X.u, 
             dWs=init_dWs, 
-            batch_size=self.batch_size,
-            enforce_endpoint=self.X_circ.v_
+            batch_size=self.n_chains,
+            enforced_endpoint=None,
+            compute_log_likelihood_ratio=True,
+            correct_log_likelihood_ratio=self.is_neural_bridge,
+            nn_variables=FrozenDict({}),
+            training=False,
         )
-        log_lls = jnp.zeros((self.n_iters + 1, self.batch_size))
-        log_lls = log_lls.at[0].set(init_path.log_ll)
+        log_likelihood_ratio = jnp.zeros((self.n_iters + 1, self.n_chains))
+        log_likelihood_ratio = log_likelihood_ratio.at[0].set(init_path.log_likelihood_ratio)
 
         init_state = RunState(
             path=init_path, 
-            total_n_accepted=jnp.zeros(self.batch_size), 
-            log_lls=log_lls,
+            total_n_accepted=jnp.zeros(self.n_chains), 
+            log_likelihood_ratio=log_likelihood_ratio,
             rng_key=key2
         )
         (logs, final_state) = self.run_loop(self.n_iters, init_state, log_every)

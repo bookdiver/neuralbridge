@@ -2,25 +2,24 @@ from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib.collections import LineCollection
 
-import scienceplots
-
 from neuralbridge.setups import *
 from neuralbridge.utils.sample_path import SamplePath
 
-plt.style.use(["science", "grid"])
-plt.rc('axes', prop_cycle=plt.cycler(color=DEFAULT_COLOR_WHEELS))
+plt.style.use('seaborn-v0_8-paper')
+plt.rcParams.update({
+    'font.family': 'serif', 
+    'text.usetex': True,
+    # 'text.latex.preamble': r'\usepackage{amsmath}\boldmath'
+})
+
 
 def plot_sample_path(
     sample_path: SamplePath, 
-    ax: Optional[plt.Axes] = None, 
-    plot_dims: Optional[Union[int, Sequence[int]]] = None,
-    colors: Optional[Union[str, Sequence[str]]] = None,
-    alpha: Optional[float] = 0.7,
-    linewidth: Optional[float] = 1.0,
-    linestyle: Optional[str] = "-",
-    zorder: Optional[int] = 1,
-    label: Optional[Union[str, Sequence[str]]] = None,
-    title: Optional[Union[str, None]] = None,
+    ax: plt.Axes | None = None, 
+    plot_dims: Sequence[int] = [],
+    colors: Sequence[str] = [],
+    labels: Sequence[str] = [],
+    line_plot_kwargs: dict = {}
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -29,47 +28,36 @@ def plot_sample_path(
         
     xs = sample_path.xs
     ts = sample_path.ts[len(sample_path.ts) - xs.shape[1]:]
-    plot_dims = range(xs.shape[-1]) if plot_dims is None else plot_dims
-    n_plot_dims = len(plot_dims)
+    plot_dims = range(xs.shape[-1]) if len(plot_dims) == 0 else plot_dims
     
-    if colors is None:
-        colors = [f'C{i}' for i in range(n_plot_dims)] 
-    elif isinstance(colors, str):
-        colors = [colors] * n_plot_dims
+    if len(colors) == 0:
+        colors = [f'C{i}' for i in range(len(plot_dims))]
     else:
-        assert len(colors) == n_plot_dims, "Number of colors must match the dimension of the sample path"
-        colors = colors
+        assert len(colors) == xs.shape[-1], "Number of colors must match the number of dimensions to plot"
     
-    for i, j in enumerate(plot_dims):
-        ax.plot(ts, xs[:, :, j].T, color=colors[i], alpha=alpha, linewidth=linewidth, linestyle=linestyle)
     
-    if label is not None:
-        if isinstance(label, str):
-            labels = [label] * n_plot_dims
-        else:
-            assert len(label) == n_plot_dims, "Number of labels must match the dimension of the sample path"
-            labels = label
+    for idx, plot_dim in enumerate(plot_dims):
+        ax.plot(
+            ts,
+            xs[:, :, plot_dim].T,
+            color=colors[idx],
+            **line_plot_kwargs
+        )
         
-        for i in range(n_plot_dims):
-            ax.plot([], [], color=colors[i], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[i], zorder=zorder)
-    
-    if title is not None:
-        ax.set_title(title)
+        if len(labels) > 0:
+            ax.plot([], [], color=colors[idx], label=labels[idx], **line_plot_kwargs)
     
     return ax
 
 def plot_mcmc_sample_path(
     mcmc_sample_path_logs: List[SamplePath], 
-    sample_index: Optional[int] = 0,
-    plot_dims: Optional[Union[int, Sequence[int]]] = None,
-    ax: Optional[plt.Axes] = None, 
-    cmaps: Optional[Union[str, Sequence[str]]] = None,
-    alpha: Optional[float] = 0.7,
-    linewidth: Optional[float] = 1.0,
-    linestyle: Optional[str] = "-",
-    label: Optional[Union[str, Sequence[str]]] = None,
-    title: Optional[Union[str, None]] = None,
-    n_iters: Optional[int] = 1000,
+    ax: plt.Axes | None = None, 
+    plot_dims: Sequence[int] = [],
+    cmaps: Sequence[str] = ["viridis"],
+    labels: Sequence[str] = [],
+    sample_index: int = 0,
+    n_iters: int = 1000,
+    line_plot_kwargs: dict = {}
 ):
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -80,46 +68,35 @@ def plot_mcmc_sample_path(
     ts = mcmc_sample_path_logs[0].path[sample_index].ts[len(mcmc_sample_path_logs[0].path[sample_index].ts) - xs.shape[2]:]
     n_logs = xs.shape[0]
     
-    if plot_dims is None:
+    if len(plot_dims) == 0:
         dims_to_plot = range(xs.shape[-1])
-        dim = xs.shape[-1]
     else:
         dims_to_plot = [plot_dims] if isinstance(plot_dims, int) else plot_dims
-        dim = len(dims_to_plot)
     
-    if cmaps is None:
-        cmaps = [plt.get_cmap(c) for c in DEFAULT_CMAP_WHEELS]
-    elif isinstance(cmaps, str):
-        cmaps = [plt.get_cmap(cmaps)] * dim
-    else:
-        assert len(cmaps) == dim, "Number of colors must match the dimension of the sample path"
-        cmaps = [plt.get_cmap(c) for c in cmaps]
+    cmaps = [plt.get_cmap(c) for c in cmaps]
     
     colors = [cmaps[k](jnp.linspace(0, 1, n_logs)) for k in range(len(cmaps))]
     for k, d in enumerate(dims_to_plot):
         for i in range(n_logs):
-            ax.plot(ts, xs[i, :, :, d].T, color=colors[k][i], alpha=alpha, linewidth=linewidth, linestyle=linestyle)
+            ax.plot(ts, 
+                    xs[i, :, :, d].T, 
+                    color=colors[k][i], 
+                    **line_plot_kwargs)
     
-    if label is not None:
-        if isinstance(label, str):
-            labels = [label] * dim
-        else:
-            assert len(label) == dim, "Number of labels must match the dimension of the sample path"
-            labels = label
-        
+    if len(labels) > 0:
         for k in range(len(dims_to_plot)):
-            ax.plot([], [], color=colors[k][-1], alpha=alpha, linewidth=linewidth, linestyle=linestyle, label=labels[k])
+            ax.plot([], [], color=colors[k][-1], **line_plot_kwargs, label=labels[k])
+        
+        ax.legend()
     
     # Add colorbars for each dimension
     for k, d in enumerate(dims_to_plot):
         norm = plt.Normalize(0, n_iters)
         sm = plt.cm.ScalarMappable(cmap=cmaps[k], norm=norm)
         sm.set_array([])
-        label_text = f"Component {d+1}" if label is None else labels[k]
-        plt.colorbar(sm, ax=ax, label=f"{label_text} iterations", pad=0.01 + 0.03*k)
-    
-    if title is not None:
-        ax.set_title(title)
+        cbar = fig.colorbar(sm, ax=ax, pad=0.01 + 0.03*k)
+        cbar.ax.tick_params(labelsize=14)
+        cbar.set_label("iterations", size=14)
     
     return ax
 
@@ -127,10 +104,9 @@ def plot_sample_path_histogram(
     sample_path: SamplePath,
     plot_dim: int = 0,
     ax: Optional[plt.Axes] = None,
-    cmap: Optional[str] = "plasma",
+    cmap: Optional[str] = "viridis",
     vertical_bins: Optional[int] = 100,
     norm: Optional[str] = "log",
-    title: Optional[str] = None,
 ):  
     if ax is None:
         fig, ax = plt.subplots(layout="constrained")
@@ -145,19 +121,18 @@ def plot_sample_path_histogram(
     n_samples, n_steps, _ = xs.shape
     xs = xs[..., plot_dim]
     ts = sample_path.ts[len(sample_path.ts) - n_steps:]
-    ts_fine = np.linspace(ts.min(), ts.max(), 2000, endpoint=False)
+    ts_fine = np.linspace(ts.min(), ts.max(), 1000, endpoint=False)
     xs_fine = np.concatenate([
         np.interp(ts_fine, ts, xs_row) for xs_row in xs
     ])
-    ts_fine = np.broadcast_to(ts_fine, (n_samples, 2000)).ravel()
+    ts_fine = np.broadcast_to(ts_fine, (n_samples, 1000)).ravel()
     h, t_edges, x_edges = np.histogram2d(ts_fine, xs_fine, bins=[n_steps, vertical_bins])
     pcm = ax.pcolormesh(t_edges, x_edges, h.T, cmap=cmap, norm=norm, vmax=n_samples/10., rasterized=True)
-    fig.colorbar(pcm, ax=ax, label="no. of samples", pad=0.05)
+    cbar = fig.colorbar(pcm, ax=ax, pad=0.05)
+    cbar.ax.tick_params(labelsize=14)
+    cbar.set_label("no. of samples", size=14)
     
     ax.grid(False)
-    
-    if title is not None:
-        ax.set_title(title)
     
     return ax
 

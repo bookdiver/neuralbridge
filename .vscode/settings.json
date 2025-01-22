@@ -6,6 +6,7 @@
     "python.testing.pytestEnabled": true,
     "julia.environmentPath": "/Users/vbd402/.julia/environments/Bridge",
     "cSpell.words": [
-        "mixedbridge"
+        "mixedbridge",
+        "uncond"
     ]
 }

@@ -1,21 +1,21 @@
-import flax.linen as nn
 from flax import struct
 from flax.training import train_state, checkpoints
 import optax
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from neuralbridge.setups import *
+from neuralbridge.stochastic_processes.examples import SDEFactory
 from neuralbridge.stochastic_processes.conds import (
     GuidedBridgeProcess, NeuralBridgeProcess
 )
 from neuralbridge.networks.mlps import NetworkFactory
 from neuralbridge.solvers.sde import WienerProcess, Euler
-from neuralbridge.utils.sample_path import SamplePath
+from neuralbridge.utils.t_grid import TimeGrid
 
 @struct.dataclass
 class TrainState(train_state.TrainState):
     rng_key: jax.Array = struct.field(pytree_node=True)
-
+    
     @classmethod
     def create(cls, *, apply_fn, params, tx, rng_key, **kwargs):
         return cls(
@@ -30,62 +30,111 @@ class TrainState(train_state.TrainState):
         
 class NeuralBridge:
     
-    def __init__(self, X_circ: GuidedBridgeProcess, config: dict):
-        self.X_circ = X_circ
+    def __init__(self, config: OmegaConf):
+        # SDE parameters
+        self.X_unc, self.X_aux = SDEFactory(config).get_sde()
+        self.u = jnp.array(config.sde.u)
+        self.v = jnp.array(config.sde.v)
+        
+        if config.sde.name.lower() == "landmark":
+            self.X_aux.initialize_g(self.v)
+        
+        self.tGrid = TimeGrid(
+            T=config.sde.T,
+            dt=config.sde.dt,
+            t_scheme=config.sde.t_scheme
+        )
+        self.X_gui = GuidedBridgeProcess(
+            X_unc=self.X_unc,
+            X_aux=self.X_aux,
+            u=self.u,
+            v=self.v,
+            eps=config.sde.eps,
+            ts=self.tGrid.ts
+        )
+        
+        self.W = WienerProcess(dim=config.sde.W_dim)
         
         # Network parameters
-        network_config = config.get("network", {})
-        network_factory = NetworkFactory(network_config)
+        network_factory = NetworkFactory(config.network)
         self.neural_net = network_factory.create()
-        self.X_diamond = NeuralBridgeProcess(X_circ, self.neural_net)
 
         # Training parameters
-        training_config = config.get("training", {})
-        self.save_name = training_config.get("save_name", "default_model")
-        self.seed = training_config.get("seed", DEFAULT_SEED)
-        self.learning_rate = training_config.get("learning_rate", 1e-3)
-        self.batch_size = training_config.get("batch_size", 128)
-        self.n_iters = training_config.get("n_iters", 1000)
-        self.n_epochs = training_config.get("n_epochs", 10)
-        self.ema_decay = training_config.get("ema_decay", None)
-        self.optimizer_name = training_config.get("optimizer", "adam")
-        self.warmup_steps = training_config.get("warmup_steps", 0)
-        self.clip_norm = training_config.get("clip_norm", None)
+        self.save_name = config.training.save_name
+        self.learning_rate = config.training.learning_rate
+        self.batch_size = config.training.batch_size
+        self.n_iters_per_epoch = config.training.n_iters_per_epoch
+        self.n_epochs = config.training.n_epochs
+        self.ema_decay = config.training.ema_decay
+        self.optimizer_name = config.training.optimizer
+        self.warmup_steps_ratio = config.training.warmup_steps_ratio
+        self.clip_norm = config.training.clip_norm
         
         self.save_relative_dir = "../../assets/ckpts/neurb"
-        self.W = None
-        self.solver = None
         self._initialize_model()
     
     def _initialize_model(self) -> None:
-        self.init_rng_key = jax.random.PRNGKey(self.seed)
-        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.X_circ.dim))
+        self.init_rng_key = DEFAULT_RNG_KEY
+        dummy_t, dummy_x = jnp.zeros((1, 1)), jnp.zeros((1, self.X_gui.dim))
         variables = self.neural_net.init(
-            self.init_rng_key,
-            dummy_t,
-            dummy_x,
+            rngs={
+                "params": self.init_rng_key
+            },
+            t=dummy_t,
+            x=dummy_x,
+            training=False
         )
         
         self.init_params = variables["params"]
+        
+        self.X_neu = NeuralBridgeProcess(
+            X_gui=self.X_gui,
+            neural_net=self.neural_net
+        )
         self.state = None 
+        
+        self.solver = Euler(
+            X=self.X_neu,
+            W=self.W,
+            tGrid=self.tGrid
+        )
     
-    def _initialize_optimizer(self, learning_rate: Optional[float] = None) -> None:
-        if self.optimizer_name == "adam":
+    def _initialize_optimizer(self) -> None:
+        total_steps = int(self.n_iters_per_epoch * self.n_epochs)
+        if self.optimizer_name.lower() == "adam":
             opt_class = optax.adam
             lr_schedule = optax.warmup_cosine_decay_schedule(
                 init_value=0.0,
-                peak_value=learning_rate if learning_rate is not None else self.learning_rate,
-                warmup_steps=self.warmup_steps,
-                decay_steps=int(self.n_iters * self.n_epochs),
-                end_value=0.01 * (learning_rate if learning_rate is not None else self.learning_rate)
+                peak_value=self.learning_rate,
+                warmup_steps=int(total_steps * self.warmup_steps_ratio),
+                decay_steps=total_steps,
+                end_value=0.01 * self.learning_rate
             )
-        elif self.optimizer_name == "sgd":
+        elif self.optimizer_name.lower() == "adamw":
+            opt_class = optax.adamw
+            lr_schedule = optax.warmup_cosine_decay_schedule(
+                init_value=0.0,
+                peak_value=self.learning_rate,
+                warmup_steps=int(total_steps * self.warmup_steps_ratio),
+                decay_steps=total_steps,
+                end_value=0.01 * self.learning_rate
+            )
+        elif self.optimizer_name.lower() == "rmsprop":
+            opt_class = optax.rmsprop
+            lr_schedule = optax.warmup_cosine_decay_schedule(
+                init_value=0.0,
+                peak_value=self.learning_rate,
+                warmup_steps=int(total_steps * self.warmup_steps_ratio),
+                decay_steps=total_steps,
+                end_value=0.01 * self.learning_rate
+            )
+        elif self.optimizer_name.lower() == "sgd":
             opt_class = optax.sgd
             lr_schedule = optax.piecewise_constant_schedule(
-                init_value=learning_rate if learning_rate is not None else self.learning_rate,
+                init_value=self.learning_rate,
                 boundaries_and_scales={
-                    int(self.n_iters * self.n_epochs * 0.6): 0.1,
-                    int(self.n_iters * self.n_epochs * 0.85): 0.1,
+                    int(total_steps * 0.6): 0.1,
+                    int(total_steps * 0.85): 0.1,
                 }
             )
         else:
@@ -97,33 +146,34 @@ class NeuralBridge:
             optax.ema(self.ema_decay) if self.ema_decay is not None else optax.identity()
         )
         
-        self.state = TrainState.create(
-            apply_fn=self.neural_net.apply,
-            params=self.init_params if self.state is None else self.state.params,
-            tx=optimizer,
-            rng_key=self.init_rng_key if self.state is None else self.state.rng_key,
-        )
+        if self.state is None:
+            self.state = TrainState.create(
+                apply_fn=self.neural_net.apply,
+                params=self.init_params,
+                tx=optimizer,
+                rng_key=self.init_rng_key,
+            )
+        else:
+            self.state = self.state.replace(
+                tx=optimizer,
+                opt_state=optimizer.init(self.state.params)
+            )
     
-    def initialize_solver(self, W: WienerProcess) -> None:
-        self.W = W
-        self.solver = Euler(
-            sde=self.X_diamond,
-            W=W
-        )
-    
-    @partial(jax.jit, static_argnums=(0))
     def _compute_loss(self, params, dWs: jnp.ndarray) -> Tuple[jnp.ndarray, dict]:
-        path = self.solver.solve_with_variables(
-            x0=self.X_circ.u,
-            variables={
-                "params": params,
-            },
+        path = self.solver.solve(
+            x0=self.X_gui.u,
             dWs=dWs,
             batch_size=self.batch_size,
-            enforce_endpoint=self.X_circ.v_,
+            enforced_endpoint=self.v,
+            compute_log_likelihood_ratio=True,
+            correct_log_likelihood_ratio=False,
+            nn_variables=FrozenDict({
+                "params": params,
+            }),
+            training=True,
         )
-        log_ll, nus = path.log_ll, path.nus
-        loss = jnp.sum(0.5 * jnp.sum(nus ** 2, axis=-1), axis=1) * self.solver.dt - log_ll # (b, )
+        log_likelihood_ratio, nn_vals = path.log_likelihood_ratio, path.nn_vals
+        loss = jnp.sum(0.5 * jnp.sum(jnp.square(nn_vals) * self.tGrid.dts[jnp.newaxis, :, jnp.newaxis], axis=-1), axis=1) - log_likelihood_ratio # (b, )
         loss = jnp.mean(loss, axis=0)
         return loss
     
@@ -134,15 +184,19 @@ class NeuralBridge:
             loss = self._compute_loss(params, dWs)
             return loss
         
-        loss, grads = jax.value_and_grad(loss_fn, has_aux=False)(state.params)
+        loss, grads = jax.value_and_grad(
+            loss_fn, 
+            argnums=0,
+            has_aux=False
+        )(state.params)
         
         state = state.apply_gradients(grads=grads)
         state = state.replace(rng_key=jax.random.split(state.rng_key)[0])
+        
         return state, loss
     
     def train(self, mode: str = "train", load_relative_dir: Optional[str] = None) -> jnp.ndarray:
         if mode == "train":
-            assert self.solver is not None, "path solver not initialized, initialize it using .initialize_path_solver(W)"
             self._initialize_optimizer()
             start_epoch = 1
         elif mode == "pretrained":
@@ -159,9 +213,9 @@ class NeuralBridge:
         for epoch in range(start_epoch, start_epoch + self.n_epochs):
             epoch_losses = []
             
-            iter_bar = tqdm(range(self.n_iters), desc=f"Epoch {epoch}", unit="iter", leave=False)
+            iter_bar = tqdm(range(self.n_iters_per_epoch), desc=f"Epoch {epoch}", unit="iter", leave=False)
             for _ in iter_bar:
-                dWs = self.W.sample(rng_key=self.state.rng_key, batch_size=self.batch_size)
+                dWs = self.W.sample(rng_key=self.state.rng_key, dts=self.tGrid.dts, batch_size=self.batch_size)
                 self.state, loss = self._train_step(self.state, dWs)
                 
                 losses.append(loss)
@@ -216,26 +270,20 @@ class NeuralBridge:
         if self.state is None:
             self._initialize_optimizer()  
         
-        self.state = TrainState(
-            apply_fn=self.neural_net.apply,
+        self.state = self.state.replace(
             params=ckpt["params"],
-            tx=self.state.tx,
             opt_state=ckpt["opt_state"],
             rng_key=ckpt["rng_key"],
-            step=0
+            step=ckpt["step"]
         )
         logging.info(f"Checkpoint loaded from {absolute_save_dir}")
         return None
     
-    def solve(self, x0: jnp.ndarray, rng_key: jax.Array, batch_size: int, enforce_endpoint: Optional[jnp.ndarray] = None) -> SamplePath:
-        dWs = self.W.sample(rng_key, batch_size)
-        path = self.solver.solve_with_variables(
-            x0=x0,
-            variables={
+    def build_neural_bridge(self) -> NeuralBridgeProcess:
+        return NeuralBridgeProcess(
+            X_gui=self.X_gui,
+            neural_net=self.neural_net,
+            nn_variables=FrozenDict({
                 "params": self.state.params,
-            },
-            dWs=dWs,
-            batch_size=batch_size,
-            enforce_endpoint=enforce_endpoint,
+            })
         )
-        return path

@@ -1,12 +1,15 @@
 # SDE parameters
 sde:
-  dim: 2
+  name: cell
+  X_dim: 2
+  W_dim: 2
   T: 4.0
   dt: 1.0e-2
-  params_X:
+  t_scheme: linear
+  params_X_unc:
     alpha: 0.0625 
     sigma: 0.1
-  params_X_tilde:
+  params_X_aux:
     alpha: 0.0625
     sigma: 0.1
   u: ["0.1", "-0.1"]
@@ -15,19 +18,27 @@ sde:
 
 # network parameters
 network:
-  mlp_type: "mlp_small"
+  mlp_type: mlp_small
   out_dim: 2
-  hidden_dims: [20, 20, 20, 20]
-  activation: "tanh"
+  hidden_dims: [32, 32, 32, 32]
+  activation: tanh
+  normalization_type: null
+  dropout_rate: 0.0
 
 # Training parameters
 training:
-  save_name: "cell_model_rare_sigma0.1"
-  learning_rate: 5.0e-4
-  batch_size: 64
-  n_iters: 750
+  save_name: cell_rare
+  learning_rate: 1.0e-3
+  batch_size: 20
+  n_iters_per_epoch: 500
   n_epochs: 10
   ema_decay: 0.995
-  optimizer: "adam"
-  warmup_steps: 750
+  optimizer: adam
+  warmup_steps_ratio: 0.1
   clip_norm: 1.0
+
+# MCMC parameters
+mcmc:
+  eta: 0.99
+  n_chains: 20
+  n_iters: 10000

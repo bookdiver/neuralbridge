@@ -1,15 +1,18 @@
 # SDE parameters
 sde:
-  dim: 2
+  name: fhn
+  X_dim: 2
+  W_dim: 2
   T: 2.0
   dt: 5.0e-3
-  params_X:
+  t_scheme: linear
+  params_X_unc:
     chi: 0.1
     s: 0.0
     gamma: 1.5
     alpha: 0.8
     sigma: 0.3
-  params_X_tilde:
+  params_X_aux:
     chi: 0.1
     s: 0.0
     gamma: 1.5
@@ -26,15 +29,23 @@ network:
   out_dim: 1
   hidden_dims: [32, 32, 32, 32]
   activation: "tanh"
+  normalization_type: null
+  dropout_rate: 0.0
 
 # Training parameters
 training:
-  save_name: "fhn_model_rare_partial_obs"
-  learning_rate: 1.0e-3
-  batch_size: 32
-  n_iters: 500
+  save_name: "fhn_extreme"
+  learning_rate: 5.0e-4
+  batch_size: 30
+  n_iters_per_epoch: 500
   n_epochs: 20
   ema_decay: 0.995
   optimizer: "adam"
-  warmup_steps: 500
+  warmup_steps_ratio: 0.1
   clip_norm: 1.0
+
+# MCMC parameters
+mcmc:
+  n_chains: 10
+  eta: 0.9
+  n_iters: 50_000

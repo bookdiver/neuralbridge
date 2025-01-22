@@ -1,10 +1,16 @@
 # SDE parameters
 sde:
-  dim: 2
+  name: cell
+  X_dim: 2
+  W_dim: 2
   T: 5.0
   dt: 1.0e-2
-  params_X:
+  t_scheme: linear
+  params_X_unc:
     alpha: 0.0625 
+    sigma: 0.1
+  params_X_aux:
+    alpha: 0.0625
     sigma: 0.1
   u: ["-1.0", "-1.0"]
   v: ["-1.0", "-1.0"]
@@ -17,17 +23,18 @@ network:
   t_emb_dim: 32
   t_emb_max_period: 100.0
   t_emb_scaling: 100.0
-  norm: "batch"
-  activation: "tanh"
+  normalization_type: null
+  activation: tanh
+  dropout_rate: 0.0
 
 # Training parameters
 training:
-  save_name: "cell_model_mm_sigma0.1"
+  save_name: cell_multimode
   learning_rate: 5.0e-4
-  batch_size: 64
-  n_iters: 1000
+  batch_size: 32
+  n_iters_per_epoch: 1000
   n_epochs: 20
   ema_decay: 0.995
   optimizer: "adam"
-  warmup_steps: 1000
+  warmup_steps_ratio: 0.1
   clip_norm: 1.0

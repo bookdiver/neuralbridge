@@ -23,16 +23,27 @@ class MLPSmall(nn.Module):
     out_dim: int
     hidden_dims: Sequence[int]
     activation: Optional[str] = "tanh"
-    dtype: Optional[jnp.dtype] = jnp.float32
+    normalization_type: Optional[Union[str, None]] = None
+    dropout_rate: Optional[float] = 0.0
+    dtype: Optional[jnp.dtype] = DEFAULT_DTYPE
     
     @nn.compact
-    def __call__(self, t: jnp.ndarray, x: jnp.ndarray):
+    def __call__(self, t: tTYPE, x: xTYPE, training: bool):
         
         x = jnp.concatenate([t, x], axis=-1)
         for hidden_dim in self.hidden_dims:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
+            if self.normalization_type == "batch":
+                x = nn.BatchNorm(use_running_average=not training)(x)
+            elif self.normalization_type == "layer":
+                x = nn.LayerNorm()(x)
+            elif self.normalization_type == None:
+                pass
             x = get_activation(self.activation)(x)
+            if self.dropout_rate > 0.0:
+                x = nn.Dropout(rate=self.dropout_rate, deterministic=not training)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
+        
         return x
 
 class MLP(nn.Module):
@@ -40,17 +51,19 @@ class MLP(nn.Module):
     hidden_dims: Sequence[int]
     activation: Optional[str] = "tanh"
     t_emb_dim: int = 32
-    t_emb_max_period: float = 100.0
+    t_emb_max_period: float = 10000.0
     t_emb_scaling: float = 100.0
-    norm: Optional[str] = "batch"
+    normalization_type: Optional[str] = "batch"
+    dropout_rate: Optional[float] = 0.0
     dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
     def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool = True):
         t_emb = TimeEmbedding(
-            self.t_emb_dim,
-            self.t_emb_max_period,
-            self.t_emb_scaling
+            t_emb_dim=self.t_emb_dim,
+            max_period=self.t_emb_max_period,
+            scaling=self.t_emb_scaling,
+            dtype=self.dtype
         )(t)
         
         x = nn.Dense(self.t_emb_dim, dtype=self.dtype)(x)
@@ -59,11 +72,15 @@ class MLP(nn.Module):
         
         for hidden_dim in self.hidden_dims:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
-            if self.norm == "batch":
+            if self.normalization_type == "batch":
                 x = nn.BatchNorm(use_running_average=not training)(x)
-            elif self.norm == "layer":
+            elif self.normalization_type == "layer":
                 x = nn.LayerNorm()(x)
+            elif self.normalization_type == None:
+                pass
             x = get_activation(self.activation)(x)
+            if self.dropout_rate > 0.0:
+                x = nn.Dropout(rate=self.dropout_rate, deterministic=not training)(x)
         x = nn.Dense(self.out_dim, dtype=self.dtype)(x)
         return x
 
@@ -72,16 +89,25 @@ class MLPLayer(nn.Module):
     hidden_dims: Sequence[int]
     activate_final: bool = False
     activation: str = "relu" 
+    normalization_type: Optional[str] = None
+    dropout_rate: Optional[float] = 0.0
     dtype: Optional[jnp.dtype] = jnp.float32
     
     @nn.compact
-    def __call__(self, x: jnp.ndarray):
+    def __call__(self, x: jnp.ndarray, training: bool):
         activation_fn = get_activation(self.activation)
         
         for hidden_dim in self.hidden_dims[:-1]:
             x = nn.Dense(hidden_dim, dtype=self.dtype)(x)
             x = activation_fn(x)
-            
+            if self.normalization_type == "batch":
+                x = nn.BatchNorm(use_running_average=not training)(x)
+            elif self.normalization_type == "layer":
+                x = nn.LayerNorm()(x)
+            elif self.normalization_type == None:
+                pass
+            if self.dropout_rate > 0.0:
+                x = nn.Dropout(rate=self.dropout_rate, deterministic=not training)(x)
         x = nn.Dense(self.hidden_dims[-1], dtype=self.dtype)(x)
         if self.activate_final:
             x = activation_fn(x)
@@ -95,16 +121,19 @@ class MLPLarge(nn.Module):
     t_emb_dim: int = 16
     t_emb_max_period: float = 10000.0
     t_emb_scaling: float = 100.0
-    activation: str = "leaky_relu"
+    activation: str = "tanh"
+    normalization_type: Optional[str] = None
+    dropout_rate: Optional[float] = 0.0
     dtype: Optional[jnp.dtype] = jnp.float32
 
     @nn.compact
-    def __call__(self, t: jnp.ndarray, x: jnp.ndarray):
+    def __call__(self, t: jnp.ndarray, x: jnp.ndarray, training: bool):
         # Time embedding
         t_emb = TimeEmbedding(
-            self.t_emb_dim,
-            self.t_emb_max_period,
-            self.t_emb_scaling
+            t_emb_dim=self.t_emb_dim,
+            max_period=self.t_emb_max_period,
+            scaling=self.t_emb_scaling,
+            dtype=self.dtype
         )(t)  # size (N, t_emb_dim)
 
         # Time encoder
@@ -112,16 +141,20 @@ class MLPLarge(nn.Module):
             hidden_dims=list(self.encoder_dims) + [2 * self.t_emb_dim],
             activate_final=False,
             activation=self.activation,
+            normalization_type=self.normalization_type,
+            dropout_rate=self.dropout_rate,
             dtype=self.dtype
-        )(t_emb)  # size (N, 2 * t_emb_dim)
+        )(t_emb, training)  # size (N, 2 * t_emb_dim)
 
         # State encoder
         x_emb = MLPLayer(
             hidden_dims=list(self.encoder_dims) + [2 * self.t_emb_dim],
             activate_final=False,
             activation=self.activation,
+            normalization_type=self.normalization_type,
+            dropout_rate=self.dropout_rate,
             dtype=self.dtype
-        )(x)  # size (N, 2 * t_emb_dim)
+        )(x, training)  # size (N, 2 * t_emb_dim)
 
         # Concatenate embeddings
         h = jnp.concatenate([x_emb, t_emb], axis=-1)  # size (N, 4 * t_emb_dim)
@@ -131,35 +164,39 @@ class MLPLarge(nn.Module):
             hidden_dims=list(self.decoder_dims) + [self.out_dim],
             activate_final=False,
             activation=self.activation,
+            normalization_type=self.normalization_type,
+            dropout_rate=self.dropout_rate,
             dtype=self.dtype
-        )(h)  # size (N, dimension)
+        )(h, training)  # size (N, dimension)
 
         return out
 
 class NetworkFactory:
-    def __init__(self, config: dict):
+    def __init__(self, config: OmegaConf):
         self.config = config
-        
+
     def create(self) -> nn.Module:
-        mlp_type = self.config.get("mlp_type", "mlp")
-        out_dim = self.config.get("out_dim")
-        hidden_dims = self.config.get("hidden_dims")
-        activation = self.config.get("activation", "tanh")
-        dtype = self.config.get("dtype", jnp.float32)
+        mlp_type = self.config.mlp_type
+        out_dim = self.config.out_dim
+        activation = self.config.activation
+        normalization_type = self.config.normalization_type
+        dropout_rate = self.config.dropout_rate
         
         if mlp_type == "mlp_small":
+            hidden_dims = self.config.hidden_dims
             return MLPSmall(
                 out_dim=out_dim,
                 hidden_dims=hidden_dims, 
                 activation=activation,
-                dtype=dtype
+                normalization_type=normalization_type,
+                dropout_rate=dropout_rate,
             )
         elif mlp_type == "mlp":
-            t_emb_dim = self.config.get("t_emb_dim", 32)
-            t_emb_max_period = self.config.get("t_emb_max_period", 100.0)
-            t_emb_scaling = self.config.get("t_emb_scaling", 100.0)
-            norm = self.config.get("norm", "batch")
-            
+            hidden_dims = self.config.hidden_dims
+            t_emb_dim = self.config.t_emb_dim
+            t_emb_max_period = self.config.t_emb_max_period
+            t_emb_scaling = self.config.t_emb_scaling
+
             return MLP(
                 out_dim=out_dim,
                 hidden_dims=hidden_dims,
@@ -167,15 +204,15 @@ class NetworkFactory:
                 t_emb_dim=t_emb_dim,
                 t_emb_max_period=t_emb_max_period,
                 t_emb_scaling=t_emb_scaling,
-                norm=norm,
-                dtype=dtype
+                normalization_type=normalization_type,
+                dropout_rate=dropout_rate,
             )
         elif mlp_type == "mlp_large":
-            encoder_dims = self.config.get("encoder_dims", (16,))
-            decoder_dims = self.config.get("decoder_dims", (128, 128))
-            t_emb_dim = self.config.get("t_emb_dim", 32)
-            t_emb_max_period = self.config.get("t_emb_max_period", 100.0)
-            t_emb_scaling = self.config.get("t_emb_scaling", 100.0)
+            encoder_dims = self.config.encoder_dims
+            decoder_dims = self.config.decoder_dims
+            t_emb_dim = self.config.t_emb_dim
+            t_emb_max_period = self.config.t_emb_max_period
+            t_emb_scaling = self.config.t_emb_scaling
             
             return MLPLarge(
                 out_dim=out_dim,
@@ -185,7 +222,6 @@ class NetworkFactory:
                 t_emb_max_period=t_emb_max_period,
                 t_emb_scaling=t_emb_scaling,
                 activation=activation,
-                dtype=dtype
             )
         else:
             raise ValueError(f"Unknown MLP type: {mlp_type}")

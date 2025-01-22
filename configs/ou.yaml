@@ -1,33 +1,38 @@
 # SDE parameters
 sde:
-  dim: 1
+  name: ou
+  X_dim: 1
+  W_dim: 1
   T: 1.0
   dt: 5.0e-3
-  params_X:
-    gamma: 2.0
+  t_scheme: linear
+  params_X_unc:
+    gamma: 1.0
     sigma: 1.0
-  params_X_tilde:
+  params_X_aux:
     gamma: 0.0
     sigma: 1.0
   u: ["0.0"]
-  v: ["1.0"]
+  v: ["0.0"]
   eps: 1.0e-10
 
 # network parameters
 network:
-  mlp_type: "mlp_small"
+  mlp_type: mlp_small
   out_dim: 1
-  hidden_dims: [20, 20, 20]
-  activation: "tanh"
+  hidden_dims: [20, 20, 20, 20]
+  activation: tanh
+  normalization_type: null
+  dropout_rate: 0.0
 
 # Training parameters
 training:
-  save_name: "ou_bridge_gamma2.0"
+  save_name: ou_1.0gamma
   learning_rate: 1.0e-3
-  batch_size: 64
-  n_iters: 500
+  batch_size: 20
+  n_iters_per_epoch: 400
   n_epochs: 10
   ema_decay: 0.995
-  optimizer: "adam"
-  warmup_steps: 500
+  optimizer: adam
+  warmup_steps_ratio: 0.1
   clip_norm: 1.0
