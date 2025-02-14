@@ -254,7 +254,7 @@ class ScoreMatchingReversedBridge:
             return ckpt
         except Exception as e:
             logging.error(f"Error saving checkpoint: {e}")
-            return e
+            return None
         
     def _load_checkpoint(self, load_relative_dir: str) -> None:
         save_dir = os.path.join(load_relative_dir, f"{self.save_name}")

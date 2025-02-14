@@ -21,7 +21,7 @@ sde:
     v: 1.1
   u: ["-0.5", "-0.6"]
   v: ["1.1", "nan"]
-  eps: 1.0e-4
+  eps: 2.0e-3
 
 # network parameters
 network:
@@ -46,6 +46,7 @@ training:
 
 # MCMC parameters
 mcmc:
-  n_chains: 10
+  n_chains: 1
   eta: 0.9
-  n_iters: 50_000
+  n_iters: 20_000
+  n_burn_in: 2_000

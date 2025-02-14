@@ -23,7 +23,7 @@ network:
   hidden_dims: [32, 32, 32, 32]
   activation: tanh
   normalization_type: null
-  dropout_rate: 0.1
+  dropout_rate: 0.4
 
 # Training parameters
 training:
@@ -40,5 +40,6 @@ training:
 # MCMC parameters
 mcmc:
   eta: 0.9
-  n_chains: 32
+  n_chains: 1
   n_iters: 10000
+  n_burn_in: 4000

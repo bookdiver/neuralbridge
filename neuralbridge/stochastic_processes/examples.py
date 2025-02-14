@@ -214,18 +214,25 @@ class LandmarkLagrangianProcess(ContinuousTimeProcess):
     def __init__(self, dim: int, params: Dict[str, float]):
         super().__init__(dim)
         self.params = params
+        self.const_g = None
+    
+    def initialize_g(self, x: xTYPE) -> None:
+        self.const_g = self.g(0.0, x)
     
     def f(self, t: tTYPE, x: xTYPE, **kwargs) -> xTYPE:
         return jnp.zeros((self.dim, ), dtype=self.dtype)
     
     def g(self, t: tTYPE, x: xTYPE) -> xTYPE:
-        x_landmarks = rearrange(x, "(n d) -> n d", n=self.params["n_landmarks"])
-        kernel_fn = lambda dist_mat: 0.5 * self.params["k_alpha"] * jnp.exp(-jnp.sum(dist_mat**2, axis=-1) / (2.0 * self.params["k_sigma"]**2))
-        dist_mat = x_landmarks[:, None, :] - x_landmarks[None, :, :]
-        corr_mat = kernel_fn(dist_mat)
-        q_half = jnp.einsum("i j, k l -> i k j l", corr_mat, jnp.eye(self.params["m_landmarks"], dtype=self.dtype))
-        q_half = rearrange(q_half, "i k j l -> (i k) (j l)")
-        return q_half
+        if self.const_g is None:
+            x_landmarks = rearrange(x, "(n d) -> n d", n=self.params["n_landmarks"])
+            kernel_fn = lambda dist_mat: 0.5 * self.params["k_alpha"] * jnp.exp(-jnp.sum(dist_mat**2, axis=-1) / (2.0 * self.params["k_sigma"]**2))
+            dist_mat = x_landmarks[:, None, :] - x_landmarks[None, :, :]
+            corr_mat = kernel_fn(dist_mat)
+            q_half = jnp.einsum("i j, k l -> i k j l", corr_mat, jnp.eye(self.params["m_landmarks"], dtype=self.dtype))
+            q_half = rearrange(q_half, "i k j l -> (i k) (j l)")
+            return q_half
+        else:
+            return self.const_g
 
 class LandmarkLagrangianAuxProcess(AuxiliaryProcess):
     

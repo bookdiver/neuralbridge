@@ -21,8 +21,8 @@ from omegaconf import OmegaConf
 tTYPE = Union[float, jnp.ndarray]
 xTYPE = Union[jnp.ndarray]
 
-DEFAULT_DTYPE = jnp.float32
-
+# DEFAULT_DTYPE = jnp.float32
+DEFAULT_DTYPE = jnp.float64
 if DEFAULT_DTYPE == jnp.float64:
     jax.config.update("jax_enable_x64", True)
     

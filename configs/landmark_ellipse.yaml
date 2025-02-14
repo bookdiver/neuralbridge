@@ -31,7 +31,7 @@ sde:
     rotation: 1.04719753333 # pi / 3 
     shift_x: -1.0
     shift_y: 0.5
-  eps: 1.0e-3
+  eps: 2.0e-3
 
 # network parameters
 network:
@@ -61,6 +61,7 @@ training:
 
 # MCMC parameters
 mcmc:
-  eta: 0.9
-  n_chains: 4
-  n_iters: 20000
+  eta: 0.95
+  n_chains: 1
+  n_iters: 5000
+  n_burn_in: 1000

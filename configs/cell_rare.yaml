@@ -40,5 +40,6 @@ training:
 # MCMC parameters
 mcmc:
   eta: 0.99
-  n_chains: 20
+  n_chains: 1
   n_iters: 10000
+  n_burn_in: 4000
