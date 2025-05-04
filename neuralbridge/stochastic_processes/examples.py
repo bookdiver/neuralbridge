@@ -317,37 +317,37 @@ class SDEFactory:
     X_unc_cls: ContinuousTimeProcess
     X_aux_cls: AuxiliaryProcess
     
-    def __init__(self, config: OmegaConf):
-        if "brownian" in config.sde.name.lower():
+    def __init__(self, config):
+        if "brownian" in config["sde"]["name"].lower():
             self.X_unc_cls = BrownianProcess
             self.X_aux_cls = BrownianAuxProcess
-        elif "ou" in config.sde.name.lower():
+        elif "ou" in config["sde"]["name"].lower():
             self.X_unc_cls = OrnsteinUhlenbeckProcess
             self.X_aux_cls = OrnsteinUhlenbeckAuxProcess
-        elif "cell" in config.sde.name.lower():
+        elif "cell" in config["sde"]["name"].lower():
             self.X_unc_cls = CellDiffusionProcess
             self.X_aux_cls = CellDiffusionAuxProcess
-        elif "fhn" in config.sde.name.lower():
+        elif "fhn" in config["sde"]["name"].lower():
             self.X_unc_cls = FitzHughNagumoProcess
             self.X_aux_cls = FitzHughNagumoAuxProcess
-        elif "landmark" in config.sde.name.lower():
+        elif "landmark" in config["sde"]["name"].lower():
             self.X_unc_cls = LandmarkLagrangianProcess
             self.X_aux_cls = LandmarkLagrangianAuxProcess
         else:
-            raise ValueError(f"Model {config.sde.name} not supported")
+            raise ValueError(f"Model {config['sde']['name']} not supported")
         
         self.config = config
         
     def get_original_sde(self) -> ContinuousTimeProcess:
         return self.X_unc_cls(
-            dim=self.config.sde.X_dim,
-            params=self.config.sde.params_X_unc
+            dim=self.config["sde"]["X_dim"],
+            params=self.config["sde"]["params_X_unc"]
         )
     
     def get_auxiliary_sde(self) -> AuxiliaryProcess:
         return self.X_aux_cls(
-            dim=self.config.sde.X_dim,
-            params=self.config.sde.params_X_aux
+            dim=self.config["sde"]["X_dim"],
+            params=self.config["sde"]["params_X_aux"]
         )
         
     def get_sde(self) -> Tuple[ContinuousTimeProcess, AuxiliaryProcess]:

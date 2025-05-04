@@ -3,8 +3,8 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 
-from read_config import read_config
 
+from neuralbridge.configs.neural_bridge_config import *
 from neuralbridge.setups import DEFAULT_RNG_KEY
 from neuralbridge.models import neurb
 
@@ -22,5 +22,12 @@ def main(config):
         
 if __name__ == "__main__":
     args = args.parse_args()
-    config = read_config(f"../../configs/{args.model}.yaml")
+    if args.model == "ou":
+        config = get_neural_bridge_ou_config()
+    elif args.model == "cell_normal":
+        config = get_neural_bridge_cell_normal_config()
+    elif args.model == "landmark_ellipse":
+        config = get_neural_bridge_landmark_config()
+    else:
+        raise ValueError(f"Model {args.model} not supported")
     main(config)

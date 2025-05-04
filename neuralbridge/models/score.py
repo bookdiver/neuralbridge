@@ -1,7 +1,7 @@
 from flax import struct
 from flax.training import train_state, checkpoints
 import optax
-from tqdm import tqdm
+import time
 
 from neuralbridge.setups import *
 from neuralbridge.stochastic_processes.examples import SDEFactory
@@ -33,29 +33,29 @@ class ScoreMatchingReversedBridge:
     def __init__(self, config: OmegaConf):
         # SDE parameters
         self.X_unc, self.X_aux = SDEFactory(config).get_sde()
-        self.u = jnp.array(config.sde.u)
-        self.v = jnp.array(config.sde.v)
+        self.u = jnp.array(config["sde"]["u"])
+        self.v = jnp.array(config["sde"]["v"])
         
         self.tGrid = TimeGrid(
-            T=config.sde.T,
-            dt=config.sde.dt,
-            t_scheme=config.sde.t_scheme
+            T=config["sde"]["T"],
+            dt=config["sde"]["dt"],
+            t_scheme=config["sde"]["t_scheme"]
         )
         
         # Network parameters
-        network_factory = NetworkFactory(config.network)
+        network_factory = NetworkFactory(config["network"])
         self.neural_net = network_factory.create()
 
         # Training parameters
-        self.save_name = config.training.save_name
-        self.learning_rate = config.training.learning_rate
-        self.batch_size = config.training.batch_size
-        self.n_iters_per_epoch = config.training.n_iters_per_epoch
-        self.n_epochs = config.training.n_epochs
-        self.ema_decay = config.training.ema_decay
-        self.optimizer_name = config.training.optimizer
-        self.warmup_steps_ratio = config.training.warmup_steps_ratio
-        self.clip_norm = config.training.clip_norm
+        self.save_name = config["training"]["save_name"]
+        self.learning_rate = config["training"]["learning_rate"]
+        self.batch_size = config["training"]["batch_size"]
+        self.n_iters_per_epoch = config["training"]["n_iters_per_epoch"]
+        self.n_epochs = config["training"]["n_epochs"]
+        self.ema_decay = config["training"]["ema_decay"]
+        self.optimizer_name = config["training"]["optimizer"]
+        self.warmup_steps_ratio = config["training"]["warmup_steps_ratio"]
+        self.clip_norm = config["training"]["clip_norm"]
         
         self.save_relative_dir = "../../assets/ckpts/score"
         self.W = None
@@ -200,33 +200,38 @@ class ScoreMatchingReversedBridge:
             if load_relative_dir is None:
                 load_relative_dir = self.save_relative_dir
             self._load_checkpoint(load_relative_dir)
-            logging.info(f"Loading pretrained model from the last epoch")
+            print(f"Loading pretrained model from the last epoch")
             losses = jnp.load(os.path.join(load_relative_dir, f"{self.save_name}", "losses.npy"))
             return losses
         else:
             raise ValueError(f"Mode {mode} not supported")
         
         losses = []
+        total_training_time = 0
         for epoch in range(start_epoch, start_epoch + self.n_epochs):
-            epoch_losses = []
+            epoch_losses = 0.0
             
-            iter_bar = tqdm(range(self.n_iters_per_epoch), desc=f"Epoch {epoch}", unit="iter", leave=False)
-            for _ in iter_bar:
+            start = time.process_time()
+            for _ in range(self.n_iters_per_epoch):
                 
                 batch = self._sample_batch(self.state.rng_key)
                 self.state, loss = self._train_step(self.state, batch)
                 
                 losses.append(loss)
-                epoch_losses.append(loss)
-                iter_bar.set_postfix({"loss": f"{loss:>7.5f}"})
-                
-            epoch_avg_loss = jnp.mean(jnp.array(epoch_losses))
-            logging.info(f"Epoch {epoch} average loss: {epoch_avg_loss:>7.5f}")
+                epoch_losses += loss
+            end = time.process_time()
+            epoch_time = end - start
+            total_training_time += epoch_time
+            epoch_avg_loss = epoch_losses / self.n_iters_per_epoch
+            print(f"Epoch: {epoch}, Loss: {epoch_avg_loss}")
             
-            self._save_checkpoint(epoch)
-        
+        self._save_checkpoint(epoch)
         losses = jnp.array(losses)
         jnp.save(os.path.join(self.save_relative_dir, f"{self.save_name}", "losses.npy"), losses)
+        
+        print(f"Training complete in {total_training_time:.3f} seconds")
+        param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.state.params))
+        print(f"Total number of parameters: {param_count:,}")
         return losses
     
     def _save_checkpoint(self, epoch: int) -> None:

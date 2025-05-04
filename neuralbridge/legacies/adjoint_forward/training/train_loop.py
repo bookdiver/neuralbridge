@@ -1,3 +1,4 @@
+import jax
 import jax.random as jr
 import jax.numpy as jnp
 import orbax
@@ -44,6 +45,7 @@ def train(key, training, data_fn, train_step, params, batch_stats, opt_state, sd
 
     print("Training")
 
+    total_training_time = 0
     for load in range(training["num_reloads"]):
         # load data
         data_key = jr.split(data_key[0], training["load_size"])
@@ -63,6 +65,7 @@ def train(key, training, data_fn, train_step, params, batch_stats, opt_state, sd
             end = time.process_time()
             epoch_time = end - start
             total_time += epoch_time
+            total_training_time += epoch_time
             actual_epoch = load * training["epochs_per_load"] + epoch
             print(f"Epoch: {actual_epoch}, Loss: {epoch_loss}")
 
@@ -70,3 +73,8 @@ def train(key, training, data_fn, train_step, params, batch_stats, opt_state, sd
             if actual_epoch % 100 == 0 or last_epoch:
                 average_time = total_time / (actual_epoch + 1)
                 save(checkpoint_path, params, opt_state, batch_stats, sde, network, training, average_time)
+                
+    print(f"Training complete in {total_training_time:.3f} seconds")
+    # Count and print the total number of parameters
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(params))
+    print(f"Total number of parameters: {param_count:,}")

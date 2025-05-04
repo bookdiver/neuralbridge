@@ -8,52 +8,55 @@ import jax.numpy as jnp
 import optax
 
 from neuralbridge.setups import *
-
-from read_config import read_config
+from neuralbridge.configs.adjoint_bridge_config import *
 
 from legacies.adjoint_forward.models.score_mlp import ScoreMLP
-from legacies.adjoint_forward.sdes import sde_cell_model, sde_data, sde_utils
+from legacies.adjoint_forward.models.score_unet import ScoreUNet
+from legacies.adjoint_forward.sdes import (
+    sde_ornstein_uhlenbeck, sde_cell_model, sde_kunita, sde_data
+)
 from legacies.adjoint_forward.training import train_loop, train_utils
 
-seed = DEFAULT_SEED
-main_rng_key = jax.random.PRNGKey(seed)
+main_rng_key = DEFAULT_RNG_KEY
 
 args = argparse.ArgumentParser()
-args.add_argument("--model", type=str, default="cell_normal", choices=["cell_normal", "cell_rare", "cell_mm", "fhn", "landmark_circle"])
+args.add_argument("--model", type=str, default="cell_normal", choices=["ou", "cell_normal", "cell_rare", "cell_mm"])
 
-def get_model(model_name: str):
-    if "cell" in model_name.lower():
+def get_model(model_name):
+    if "ou" in model_name.lower():
+        sde_cls = sde_ornstein_uhlenbeck.ornstein_uhlenbeck
+    elif "cell" in model_name.lower():
         sde_cls = sde_cell_model.cell_model
+    elif "landmark" in model_name.lower():
+        sde_cls = sde_kunita
     else:
         raise ValueError(f"Model {model_name} not supported")
     
     return sde_cls
 
-def train_adjoint_forward(model_name, config):
+def get_config(model_name):
+    if model_name == "ou":
+        return get_adjoint_bridge_ou_config()
+    elif model_name == "cell_normal":
+        return get_adjoint_bridge_cell_normal_config()
+    elif model_name == "landmark_ellipse":
+        return get_adjoint_bridge_landmark_config()
+    else:
+        raise ValueError(f"Model {model_name} not supported in adjoint bridge training")
+
+def train_adjoint_forward(model_name):
     sde_cls = get_model(model_name)
-    sde = sde_cls(
-        T=config.sde.T,
-        N=int(config.sde.T / config.sde.dt),
-        alpha=config.sde.alpha,
-        sigma=config.sde.sigma
-    )
+    config = get_config(model_name)
+
+    ckpt_path = os.path.abspath(f"../assets/ckpts/adjoint/{model_name}_new")
+            
+    sde = sde_cls(**config["sde"])
+    model = ScoreMLP(**config["network"])
     
-    ckpt_path = os.path.abspath(f"../assets/ckpts/adjoint/{model_name}_0.1sigma")
-    
-    model = ScoreMLP(**config.network)
-    training = {
-        "y": jnp.array(config.training.v).tolist(),
-        "batch_size": config.training.batch_size,
-        "epochs_per_load": config.training.epochs_per_load,
-        "lr": config.training.lr,
-        "num_reloads": config.training.num_reloads,
-        "load_size": config.training.load_size
-    }
-    
-    data_fn = sde_data.data_adjoint(jnp.array(config.training.v), sde)
+    data_fn = sde_data.data_adjoint(config["training"]["y"], sde)
     
     opt = optax.chain(
-        optax.adam(learning_rate=config.training.lr)
+        optax.adam(learning_rate=config["training"]["lr"])
     )
     score_fn = train_utils.get_score(sde)
     
@@ -63,18 +66,20 @@ def train_adjoint_forward(model_name, config):
     
     (loop_key, train_key) = jax.random.split(main_rng_key, 2)
     
+    dt = config["sde"]["T"] / config["sde"]["N"]
+    
     train_step, params, opt_state, batch_stats = train_utils.create_train_step_reverse(
         train_key,
         model,
         opt,
         *model_init_sizes,
-        dt=config.sde.dt,
+        dt=dt,
         score=score_fn
     )
     
     train_loop.train(
         key=loop_key,
-        training=training,
+        training=config["training"],
         data_fn=data_fn,
         train_step=train_step,
         params=params,
@@ -84,8 +89,7 @@ def train_adjoint_forward(model_name, config):
         network=model,
         checkpoint_path=ckpt_path
     )
-    
+        
 if __name__ == "__main__":
     args = args.parse_args()
-    config = read_config(f"../../configs/{args.model}_adjoint.yaml")
-    train_adjoint_forward(args.model, config)
+    train_adjoint_forward(args.model)

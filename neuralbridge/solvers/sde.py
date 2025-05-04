@@ -68,7 +68,7 @@ class SDESolver(abc.ABC):
             "batch_size",
             "compute_log_likelihood_ratio", 
             "correct_log_likelihood_ratio",
-            "nn_variables",
+            # "nn_variables",
             "training"
         )
     )

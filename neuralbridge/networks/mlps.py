@@ -172,18 +172,18 @@ class MLPLarge(nn.Module):
         return out
 
 class NetworkFactory:
-    def __init__(self, config: OmegaConf):
+    def __init__(self, config):
         self.config = config
 
     def create(self) -> nn.Module:
-        mlp_type = self.config.mlp_type
-        out_dim = self.config.out_dim
-        activation = self.config.activation
-        normalization_type = self.config.normalization_type
-        dropout_rate = self.config.dropout_rate
+        mlp_type = self.config["mlp_type"]
+        out_dim = self.config["out_dim"]
+        activation = self.config["activation"]
+        normalization_type = self.config["normalization_type"]
+        dropout_rate = self.config["dropout_rate"]
         
         if mlp_type == "mlp_small":
-            hidden_dims = self.config.hidden_dims
+            hidden_dims = self.config["hidden_dims"]
             return MLPSmall(
                 out_dim=out_dim,
                 hidden_dims=hidden_dims, 
@@ -192,10 +192,10 @@ class NetworkFactory:
                 dropout_rate=dropout_rate,
             )
         elif mlp_type == "mlp":
-            hidden_dims = self.config.hidden_dims
-            t_emb_dim = self.config.t_emb_dim
-            t_emb_max_period = self.config.t_emb_max_period
-            t_emb_scaling = self.config.t_emb_scaling
+            hidden_dims = self.config["hidden_dims"]
+            t_emb_dim = self.config["t_emb_dim"]
+            t_emb_max_period = self.config["t_emb_max_period"]
+            t_emb_scaling = self.config["t_emb_scaling"]
 
             return MLP(
                 out_dim=out_dim,
@@ -208,11 +208,11 @@ class NetworkFactory:
                 dropout_rate=dropout_rate,
             )
         elif mlp_type == "mlp_large":
-            encoder_dims = self.config.encoder_dims
-            decoder_dims = self.config.decoder_dims
-            t_emb_dim = self.config.t_emb_dim
-            t_emb_max_period = self.config.t_emb_max_period
-            t_emb_scaling = self.config.t_emb_scaling
+            encoder_dims = self.config["encoder_dims"]
+            decoder_dims = self.config["decoder_dims"]
+            t_emb_dim = self.config["t_emb_dim"]
+            t_emb_max_period = self.config["t_emb_max_period"]
+            t_emb_scaling = self.config["t_emb_scaling"]
             
             return MLPLarge(
                 out_dim=out_dim,

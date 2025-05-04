@@ -2,13 +2,10 @@ import jax
 import jax.numpy as jnp
 
 from . import sde_utils
+from einops import rearrange
 
 
-def kunita(T, N, num_landmarks, x0=None, y=None, dim=2, sigma=1.0, kappa=0.1, grid_size=5, grid_range=(-2, 2)):
-    grid_ = jnp.linspace(*grid_range, grid_size)
-    grid_ = jnp.stack(jnp.meshgrid(grid_, grid_, indexing="xy"), axis=-1)
-    grid_ = grid_.reshape(-1, dim)
-
+def kunita(T, N, num_landmarks, x0=None, y=None, dim=2, sigma=1.0, kappa=0.1):
     gauss_kernel = gaussian_kernel_2d(kappa, sigma)
     # matern_kernel = matern_kernel_5_2(kappa, sigma)
 
@@ -19,15 +16,10 @@ def kunita(T, N, num_landmarks, x0=None, y=None, dim=2, sigma=1.0, kappa=0.1, gr
         if x0 is not None:
             x = x.reshape(-1, dim) + x0.reshape(-1, dim)
         x = x.reshape(-1, dim)
-        batch_over_grid = jax.vmap(gauss_kernel, in_axes=(None, 0))
-        batch_over_vals = jax.vmap(batch_over_grid, in_axes=(0, None))
-        Q_half = batch_over_vals(x, grid_)
-        Q_half = Q_half.reshape(-1, grid_size**2)
-        Q_half = jnp.kron(Q_half, jnp.eye(2))
-
-        scaling = (grid_range[1] - grid_range[0]) / grid_size
-
-        return scaling**2 * Q_half
+        corr_mat = gauss_kernel(x[:, None, :], x[None, :, :])
+        q_half = jnp.einsum("i j, k l -> i k j l", corr_mat, jnp.eye(num_landmarks, dtype=x.dtype))
+        q_half = rearrange(q_half, "i k j l -> (i k) (j l)")
+        return q_half
 
     def adj_drift(t, x, partials=None):
         if y is not None:
@@ -80,7 +72,7 @@ def kunita(T, N, num_landmarks, x0=None, y=None, dim=2, sigma=1.0, kappa=0.1, gr
         adj_diffusion,
         correction,
         None,
-        (2 * grid_size**2,),
+        (num_landmarks * dim,),
         None,
     )
 
@@ -99,6 +91,6 @@ def matern_kernel_5_2(alpha, sigma):
 
 def gaussian_kernel_2d(alpha: float, sigma: float) -> callable:
     def k(x, y):
-        return alpha * jnp.exp(-0.5 * jnp.sum(jnp.square(x - y), axis=-1) / (sigma**2))
+        return 0.5 * alpha * jnp.exp(-0.5 * jnp.sum(jnp.square(x - y), axis=-1) / (sigma**2))
 
     return k
