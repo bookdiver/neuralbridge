@@ -4,24 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuralbridge"
-version = "0.1.0"
-description = "A description of your project"
+version = "0.2.0"
+description = "The package for paper: Neural Guided Diffusion Bridge."
+authors = [{name = "Gefan Yang", email = "gy@di.ku.dk"}]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flax",
+    "flax=0.10.4",
+    "diffrax",
     "optax",
     "matplotlib",
-    "jupyter",
+    "ipykernel",
+    "ml_collections",
     "pytest",
-    "tqdm",
-    "einops",
-    "omegaconf"
+    "jax[cpu]",
 ]
 
 [project.optional-dependencies]
-cpu = ["jax[cpu]", "jaxlib"]
-gpu = ["jax[cuda]", "jaxlib"]
+cpu = []
+gpu = ["jax[cuda12]"]
 
 [tool.setuptools]
-packages = ["neuralbridge"]
+packages = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.rst"]
