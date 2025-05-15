@@ -117,10 +117,10 @@ class GuidedBridgeSDE(BaseSDE):
     def r(self, t, x):
         t_idx = self._find_t_idx(t)
         F, H = self.Fs[t_idx], self.Hs[t_idx]
-        return F - H @ x
+        return F - jnp.dot(H, x)
     
     def b(self, t, x):
-        return self.sde.b(t, x) + self.a(t, x) @ self.r(t, x)
+        return self.sde.b(t, x) + jnp.dot(self.a(t, x), self.r(t, x))
 
     def sigma(self, t, x):
         return self.sde.sigma(t, x)

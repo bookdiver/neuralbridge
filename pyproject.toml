@@ -10,7 +10,7 @@ authors = [{name = "Gefan Yang", email = "gy@di.ku.dk"}]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flax=0.10.4",
+    "flax==0.10.4",
     "diffrax",
     "optax",
     "matplotlib",
@@ -25,7 +25,8 @@ cpu = []
 gpu = ["jax[cuda12]"]
 
 [tool.setuptools]
-packages = ["src"]
+packages = ["neuralbridge"]
+package-dir = {"neuralbridge" = "src"}
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.rst"]

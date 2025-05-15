@@ -21,7 +21,7 @@ class VectorField(nnx.Module):
         sigma = self.sigma_fn(t, x)
         v = self.nn(t, x)
         t = jnp.asarray(t)
-        return b + jnp.dot(sigma, v), v
+        return b + jnp.dot(sigma.T, v), v
     
     def create_model(self, config):
         kwargs = {k: v for k, v in config.items() if k != "model_name"}
@@ -64,9 +64,10 @@ class NeuralBridge(nnx.Module):
         self.dim = nn_config["input_dim"]
         self.rngs = nn_config["rngs"]
     
-    def __call__(self, ts, x0, key):
+    def solve(self, ts, x0, key):
         dts = jnp.diff(ts)
-        dWs = jr.normal(key, (len(dts), self.noise_dim)) * jnp.sqrt(dts[:, None])
+        n_steps = len(dts)
+        dWs = jr.normal(key, (n_steps, self.noise_dim)) * jnp.sqrt(dts[:, None])
         
         def scan_body(carry, vals):
             t, x, ll = carry
@@ -80,12 +81,10 @@ class NeuralBridge(nnx.Module):
         (_, _, ll), (xs, vs) = jax.lax.scan(
             scan_body,
             init=(0.0, x0, 0.0),
-            xs=(dts, dWs)
+            xs=(dts, dWs),
+            length=n_steps
         )
         return xs, (vs, ll)
-    
-    def solve(self, ts, x0, key):
-        return self.__call__(ts, x0, key)
     
     @property
     def nn(self):
@@ -94,6 +93,23 @@ class NeuralBridge(nnx.Module):
     @nn.setter
     def nn(self, value):
         self.vf.nn = value
+        
+    # def train(self, **attributes):
+    #     return self.set_attributes(
+    #         deterministic=False,
+    #         use_running_average=False,
+    #         update_stats=True,
+    #         **attributes,
+    #         raise_if_not_found=False,
+    #     )
+    # def eval(self, **attributes):
+    #     return self.set_attributes(
+    #         deterministic=True,
+    #         use_running_average=True,
+    #         update_stats=False,
+    #         **attributes,
+    #         raise_if_not_found=False,
+    #     )
     
     def b(self, t, x):
         return self.vf(t, x)[0]

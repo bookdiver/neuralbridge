@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 
-from diffrax import ODETerm, Dopri5, diffeqsolve, SaveAt
+from diffrax import ODETerm, Dopri5, diffeqsolve, SaveAt, Euler
 
 class BackwardInformationFilter:
     # unconditional & auxiliary process
@@ -12,7 +12,8 @@ class BackwardInformationFilter:
     a_tilde: callable
     a_tilde_0: jnp.ndarray
     a_tilde_T: jnp.ndarray
-    dim: int
+    dim_x: int
+    dim_v: int
     
     # observations
     vT: jnp.ndarray
@@ -29,9 +30,10 @@ class BackwardInformationFilter:
         self.a_tilde = lambda t: aux_sde.a(t, x=None)
         self.a_tilde_0 = aux_sde._a_tilde_0
         self.a_tilde_T = aux_sde._a_tilde_T
-        self.dim = sde.dim
+        self.dim_x = sde.dim
         
         self.vT = obs_params["vT"]
+        self.dim_v = self.vT.shape[0]
         self.LT = obs_params["LT"]
         self.SigmaT = obs_params["SigmaT"]
     
@@ -47,10 +49,10 @@ class BackwardInformationFilter:
         return HT, FT, cT
     
     def _initialize_uLM_ode(self):
-        MT_dag = self.SigmaT
-        LT = self.LT
-        muT = jnp.zeros_like(self.vT)
-        return LT, MT_dag, muT
+        MT_dag = self.SigmaT   # dim_v x dim_v
+        LT = self.LT           # dim_v x dim_x
+        uT = jnp.zeros_like(self.vT)  # dim_v
+        return LT, MT_dag, uT
         
     def _solve_cFH(self, ts):
         HT, FT, cT = self._initialize_cFH_ode()
@@ -99,29 +101,29 @@ class BackwardInformationFilter:
         return Hs[::-1], Fs[::-1], cs[::-1]
     
     def _solve_uLM(self, ts):
-        LT, MT_dag, muT = self._initialize_uLM_ode()
-        y0 = jnp.concatenate([LT.reshape(-1), MT_dag.reshape(-1), jnp.array(muT)])
+        LT, MT_dag, uT = self._initialize_uLM_ode()
+        y0 = jnp.concatenate([LT.reshape(-1), MT_dag.reshape(-1), uT])
         
         def vector_field_uLM(t, y, args):
-            dim = args["dim"]
+            dim_x, dim_v = args["dim_x"], args["dim_v"]
             B_t = self.B(t)
             beta_t = self.beta(t)
             a_tilde_t = self.a_tilde(t)
             
-            L_t_flat = y[:(dim*dim)]
-            L_t = L_t_flat.reshape(dim, dim)
-            # M_t_dag_flat = y[(dim*dim):(2*dim*dim)]
-            # M_t_dag = M_t_dag_flat.reshape(dim, dim)
-            # mu_t = y[(2*dim*dim):]
+            L_t_flat = y[:(dim_v*dim_x)]
+            L_t = L_t_flat.reshape(dim_v, dim_x)
+            M_t_dag_flat = y[(dim_v*dim_x):(dim_v*dim_x + dim_v*dim_v)]
+            M_t_dag = M_t_dag_flat.reshape(dim_v, dim_v)
+            u_t = y[(dim_v*dim_x + dim_v*dim_v):]
             
             dL_dt = (-L_t @ B_t)
             dM_dag_dt = (-L_t @ a_tilde_t @ L_t.T)
-            dmu_dt = (-L_t @ beta_t)
+            du_dt = (-L_t @ beta_t)
             
             dL_dt_flat = dL_dt.reshape(-1)
             dM_dag_dt_flat = dM_dag_dt.reshape(-1)
-            dmu_dt_flat = dmu_dt
-            return jnp.concatenate([dL_dt_flat, dM_dag_dt_flat, dmu_dt_flat])
+            du_dt_flat = du_dt
+            return jnp.concatenate([dL_dt_flat, dM_dag_dt_flat, du_dt_flat])
         
         term = ODETerm(vector_field_uLM)
         solver = Dopri5()
@@ -134,20 +136,75 @@ class BackwardInformationFilter:
             t1=ts[0],
             dt0=ts[0] - ts[1],
             y0=y0,
-            args={"dim": self.dim},
+            args={"dim_x": self.dim_x, "dim_v": self.dim_v},
             saveat=saveat
         )
         
-        Ls = sol.ys[:, :(self.dim*self.dim)].reshape(-1, self.dim, self.dim)
-        Ms_dag = sol.ys[:, (self.dim*self.dim):(2*self.dim*self.dim)].reshape(-1, self.dim, self.dim)
+        Ls = sol.ys[:, :(self.dim_v*self.dim_x)].reshape(-1, self.dim_v, self.dim_x)
+        Ms_dag = sol.ys[:, (self.dim_v*self.dim_x):(self.dim_v*self.dim_x + self.dim_v*self.dim_v)].reshape(-1, self.dim_v, self.dim_v)
         Ms = jax.vmap(jnp.linalg.inv)(Ms_dag)
-        mus = sol.ys[:, 2*self.dim*self.dim:]
+        us = sol.ys[:, (self.dim_v*self.dim_x + self.dim_v*self.dim_v):]
         
-        H_fn = lambda L, M: L.T @ M @ L
-        F_fn = lambda L, M, mu: L.T @ M @ (self.vT - mu)
+        H_fn = lambda L, M: L.T @ M @ L            # dim_x x dim_x
+        F_fn = lambda L, M, u: L.T @ M @ (self.vT - u)  # dim_x
         Hs = jax.vmap(H_fn)(Ls, Ms)
-        Fs = jax.vmap(F_fn)(Ls, Ms, mus)
-        return Hs[::-1], Fs[::-1], mus[::-1]
+        Fs = jax.vmap(F_fn)(Ls, Ms, us)
+        return Hs[::-1], Fs[::-1], us[::-1]
+    
+    # def _solve_uLM(self, ts):
+    #     from collections import namedtuple
+    #     SolveState = namedtuple("SolveState", ["L", "M_dag", "u"])
+        
+    #     def kernel_dopri5(
+    #         func: callable, t: float, y: jnp.ndarray, dt: float, **kwargs
+    #     ) -> jnp.ndarray:
+    #         k1 = func(t, y, **kwargs)
+    #         k2 = func(t + 1/5 * dt, y + 1/5 * dt * k1, **kwargs)
+    #         k3 = func(t + 3/10 * dt, y + 3/40 * dt * k1 + 9/40 * dt * k2, **kwargs)
+    #         k4 = func(t + 4/5 * dt, y + 44/45 * dt * k1 - 56/15 * dt * k2 + 32/9 * dt * k3, **kwargs)
+    #         k5 = func(t + 8/9 * dt, y + 19372/6561 * dt * k1 - 25360/2187 * dt * k2 + 64448/6561 * dt * k3 - 212/729 * dt * k4, **kwargs)
+    #         k6 = func(t + dt, y + 9017/3168 * dt * k1 - 355/33 * dt * k2 + 46732/5247 * dt * k3 + 49/176 * dt * k4 - 5103/18656 * dt * k5, **kwargs)
+            
+    #         out = y + dt * (35/384 * k1 + 500/1113 * k3 + 125/192 * k4 - 2187/6784 * k5 + 11/84 * k6)
+    #         return out
+        
+    #     def solve_step(solve_state: namedtuple, t_args: tuple) -> namedtuple:
+    #         t, dt = t_args
+    #         L = kernel_dopri5(
+    #             func=lambda t, y: - jnp.einsum("i j, j ... -> i ...", y, self.B(t)),
+    #             t=t,
+    #             y=solve_state.L,
+    #             dt=dt
+    #         )
+    #         M_dag = kernel_dopri5(
+    #             func=lambda t, y: - jnp.einsum("i j, j k, l k -> i l", solve_state.L, self.a_tilde(t), solve_state.L),
+    #             t=t,
+    #             y=solve_state.M_dag,
+    #             dt=dt
+    #         )
+    #         u = kernel_dopri5(
+    #             func=lambda t, y: - jnp.einsum("i j, j ... -> i ...", solve_state.L, self.beta(t)),
+    #             t=t,
+    #             y=solve_state.u,
+    #             dt=dt
+    #         )
+    #         M = jnp.linalg.inv(M_dag)
+    #         new_state = SolveState(L=L, M_dag=M_dag, u=u)
+    #         return new_state, (L, M, u)
+        
+    #     LT, MT_dag, uT = self._initialize_uLM_ode()
+    #     ts = jnp.flip(ts)
+    #     dts = jnp.diff(ts)
+    #     init_state = SolveState(L=LT, M_dag=MT_dag, u=uT)
+    #     _, (Ls, Ms, us) = jax.lax.scan(
+    #         f=solve_step, 
+    #         init=init_state, 
+    #         xs=(ts[1:], dts),
+    #         reverse=True
+    #     )
+    #     Hs = jnp.einsum("t j i, t j k, t k l -> t i l", Ls, Ms, Ls)  # H(t) = L^T(t) M(t) L(t)
+    #     Fs = jnp.einsum("t j i, t j k, t k -> t i", Ls, Ms, self.vT[jnp.newaxis, :] - us)  # F(t) = L^T(t) M(t) (v(t) - mu(t))
+    #     return Hs, Fs, us
     
     def _solve_close_form(self, ts):
         t0, T = ts[0], ts[-1]

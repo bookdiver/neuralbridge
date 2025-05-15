@@ -7,6 +7,8 @@ from .time_embeddings import (
     TimeEmbeddingFiLM
 )
 
+from .spectral_norm import SpectralNorm
+
 def get_activation(act_type):
     if act_type == "relu":
         return nnx.relu
@@ -31,30 +33,20 @@ def get_time_embedding_layer(t_emb_type, t_emb_kwargs):
     else:
         raise ValueError(f"Time embedding {t_emb_type} not supported")
     
-def get_normalization(norm_type, num_features, **kwargs):
-    if norm_type == "batch":
-        return nnx.BatchNorm(num_features, **kwargs)
-    elif norm_type == "layer":
-        return nnx.LayerNorm(num_features, **kwargs)
-    elif norm_type == "none":
-        return lambda x: x
-    else:
-        raise ValueError(f"Normalization {norm_type} not supported")
-    
+
 class DenseLayer(nnx.Module):
     """ A dense layer with optional normalization and activation """
     fc: nnx.Module
     norm: nnx.Module
     act: nnx.Module
     
-    def __init__(self, input_dim, output_dim, *, act_type, norm_type, rngs):
+    def __init__(self, input_dim, output_dim, *, act_type, rngs):
+        # self.fc = SpectralNorm(nnx.Linear(input_dim, output_dim, rngs=rngs), rngs=rngs)
         self.fc = nnx.Linear(input_dim, output_dim, rngs=rngs)
-        self.norm = get_normalization(norm_type, output_dim, rngs=rngs)
         self.act = get_activation(act_type)
         
     def __call__(self, x):
         x = self.fc(x)
-        x = self.norm(x)
         x = self.act(x)
         return x
     
@@ -64,13 +56,18 @@ class MLPSmall(nnx.Module):
     in_fc: nnx.Module
     out_fc: nnx.Module
     
-    def __init__(self, input_dim, output_dim, hidden_dims, *, act_type, norm_type, rngs):
+    def __init__(self, input_dim, output_dim, hidden_dims, *, act_type, rngs):
+        # self.in_fc = SpectralNorm(nnx.Linear(input_dim + 1, hidden_dims[0], rngs=rngs), rngs=rngs)
         self.in_fc = nnx.Linear(input_dim + 1, hidden_dims[0], rngs=rngs)
         self.layers = []
         
         for i in range(1, len(hidden_dims)):
             self.layers.append(
-                DenseLayer(hidden_dims[i - 1], hidden_dims[i], act_type=act_type, norm_type=norm_type, rngs=rngs)
+                DenseLayer(
+                    hidden_dims[i - 1], hidden_dims[i], 
+                    act_type=act_type, 
+                    rngs=rngs
+                )
             )
             
         self.out_fc = nnx.Linear(hidden_dims[-1], output_dim, rngs=rngs)
