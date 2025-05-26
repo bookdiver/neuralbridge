@@ -126,10 +126,11 @@ def train(nb, x0, ts, train_config, *, rngs):
             
             _, state = nnx.split(nb.nn)
             
-            regular_manager.save(
-                step=i,
-                items={'state': state},
-            )
+            if i % 1000 == 0 or i == n_iters:
+                regular_manager.save(
+                    step=i,
+                    items={'state': state},
+                )
                 
             metrics.reset()
     
@@ -145,7 +146,7 @@ def train(nb, x0, ts, train_config, *, rngs):
     
     return jnp.array(loss_records)
     
-def load(nb, ckpt_dir, load_best=True):
+def load(nb, ckpt_dir, load_best=False):
     ckpt_dir = os.path.abspath(ckpt_dir)
     best_dir = os.path.join(ckpt_dir, "best")
     

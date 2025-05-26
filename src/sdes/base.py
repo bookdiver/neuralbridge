@@ -4,10 +4,12 @@ import jax.numpy as jnp
 from .bif import BackwardInformationFilter
 
 class BaseSDE(abc.ABC):
-    dim: int
+    dim_x: int
+    dim_w: int
     
-    def __init__(self, dim):
-        self.dim = dim
+    def __init__(self, dim_x, dim_w):
+        self.dim_x = dim_x
+        self.dim_w = dim_w
     
     @abc.abstractmethod
     def b(self, *args, **kwargs):
@@ -23,10 +25,8 @@ class BaseSDE(abc.ABC):
         
     
 class UnconditionalSDE(BaseSDE):
-    dim: int
-    
-    def __init__(self, dim):
-        super().__init__(dim)
+    def __init__(self, dim_x, dim_w):
+        super().__init__(dim_x, dim_w)
         
     @abc.abstractmethod
     def b(self, t, x):
@@ -39,28 +39,49 @@ class UnconditionalSDE(BaseSDE):
     def a(self, t, x):
         sigma = self.sigma(t, x)
         return sigma @ sigma.T
-        
+
+class BridgeSDE(BaseSDE):
+    dim_x: int
+    dim_w: int
+    _vT: jnp.ndarray
+    _T: float
+
+    def __init__(self, dim_x, dim_w, vT, T):
+        super().__init__(dim_x, dim_w)
+        self._vT = vT
+        self._T = T
+    
+    @abc.abstractmethod
+    def b(self, t, x):
+        pass
+    
+    @abc.abstractmethod
+    def sigma(self, t, x):
+        pass
+    
+    def a(self, t, x):
+        sigma = self.sigma(t, x)
+        return sigma @ sigma.T
     
 class AuxiliarySDE(BaseSDE):
-    dim: int
     T: float
     _beta_func: callable
     _B_func: callable
     _a_tilde_T: jnp.ndarray
     _a_tilde_0: jnp.ndarray
     
-    def __init__(self, dim, coeffs):
-        super().__init__(dim)
+    def __init__(self, dim_x, dim_w, coeffs):
+        super().__init__(dim_x, dim_w)
         self.T = coeffs["T"]
         self._beta_func = coeffs["beta"]
         self._B_func = coeffs["B"]
         self._a_tilde_0 = coeffs["a_tilde_0"]
         self._a_tilde_T = coeffs["a_tilde_T"]
         fake_t = jnp.array(0.0)
-        assert self._beta_func(fake_t).shape == (dim, )
-        assert self._B_func(fake_t).shape == (dim, dim)
-        assert self._a_tilde_0.shape == (dim, dim) if self._a_tilde_0 is not None else True
-        assert self._a_tilde_T.shape == (dim, dim)
+        assert self._beta_func(fake_t).shape == (dim_x, )
+        assert self._B_func(fake_t).shape == (dim_x, dim_x)
+        assert self._a_tilde_0.shape == (dim_x, dim_x) if self._a_tilde_0 is not None else True
+        assert self._a_tilde_T.shape == (dim_x, dim_x)
         
     def B(self, t):
         return self._B_func(t)
@@ -82,10 +103,11 @@ class AuxiliarySDE(BaseSDE):
             return self._a_tilde_T * (t / self.T) + self._a_tilde_0 * (1.0 - t / self.T)
     
 
-class GuidedBridgeSDE(BaseSDE):
+class GuidedProposalSDE(BaseSDE):
     sde: UnconditionalSDE
     aux_sde: AuxiliarySDE 
-    dim: int
+    dim_x: int
+    dim_w: int
     ts: jnp.ndarray
     
     # backward information filtering variables
@@ -93,7 +115,7 @@ class GuidedBridgeSDE(BaseSDE):
     Fs: jnp.ndarray
     
     def __init__(self, sde, aux_sde, obs_params, ts, eq_type="cFH"):
-        super().__init__(sde.dim)
+        super().__init__(sde.dim_x, sde.dim_w)
         
         self.sde = sde
         self.aux_sde = aux_sde

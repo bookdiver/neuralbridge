@@ -26,6 +26,7 @@ class SinusoidalTimeEmbedding(nnx.Module):
 
     def __call__(self, t):
         """ input t shape: (batch, ) """
+        t = jnp.expand_dims(t, axis=0)
         t = self.scale * t[:, jnp.newaxis] # (batch_size, 1)
         arg = t * self.freqs  # (batch_size, num_freqs)
         sin_emb = jnp.sin(arg)
@@ -52,6 +53,8 @@ class GaussianRandomTimeEmbedding(nnx.Module):
         
     def __call__(self, t):
         """ input t shape: (batch, ) """
+        if t.ndim == 1:
+            t = jnp.expand_dims(t, axis=0)
         t = self.scale * t[:, jnp.newaxis] # (batch_size, 1)
         arg = t * self.freqs  # (batch_size, num_freqs)
         sin_emb = jnp.sin(arg)

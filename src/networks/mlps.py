@@ -7,7 +7,7 @@ from .time_embeddings import (
     TimeEmbeddingFiLM
 )
 
-from .spectral_norm import SpectralNorm
+# from .spectral_norm import SpectralNorm
 
 def get_activation(act_type):
     if act_type == "relu":
@@ -32,7 +32,6 @@ def get_time_embedding_layer(t_emb_type, t_emb_kwargs):
         return GaussianRandomTimeEmbedding(**t_emb_kwargs)
     else:
         raise ValueError(f"Time embedding {t_emb_type} not supported")
-    
 
 class DenseLayer(nnx.Module):
     """ A dense layer with optional normalization and activation """
@@ -42,7 +41,12 @@ class DenseLayer(nnx.Module):
     
     def __init__(self, input_dim, output_dim, *, act_type, rngs):
         # self.fc = SpectralNorm(nnx.Linear(input_dim, output_dim, rngs=rngs), rngs=rngs)
-        self.fc = nnx.Linear(input_dim, output_dim, rngs=rngs)
+        self.fc = nnx.Linear(
+            input_dim, 
+            output_dim, 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal()
+        )
         self.act = get_activation(act_type)
         
     def __call__(self, x):
@@ -58,7 +62,12 @@ class MLPSmall(nnx.Module):
     
     def __init__(self, input_dim, output_dim, hidden_dims, *, act_type, rngs):
         # self.in_fc = SpectralNorm(nnx.Linear(input_dim + 1, hidden_dims[0], rngs=rngs), rngs=rngs)
-        self.in_fc = nnx.Linear(input_dim + 1, hidden_dims[0], rngs=rngs)
+        self.in_fc = nnx.Linear(
+            input_dim + 1, 
+            hidden_dims[0], 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal()
+        )
         self.layers = []
         
         for i in range(1, len(hidden_dims)):
@@ -70,7 +79,12 @@ class MLPSmall(nnx.Module):
                 )
             )
             
-        self.out_fc = nnx.Linear(hidden_dims[-1], output_dim, rngs=rngs)
+        self.out_fc = nnx.Linear(
+            hidden_dims[-1], 
+            output_dim, 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal()
+        )
         
     def __call__(self, t, x):
         t_expand = jnp.expand_dims(t, axis=-1)
@@ -87,19 +101,29 @@ class MLPMedium(nnx.Module):
     t_emb_layer: nnx.Module
     out_fc: nnx.Module
     
-    def __init__(self, input_dim, output_dim, hidden_dims, *, t_emb_type, t_emb_kwargs, act_type, norm_type, rngs):
+    def __init__(self, input_dim, output_dim, hidden_dims, *, t_emb_type, t_emb_kwargs, act_type, rngs):
         self.t_emb_layer = get_time_embedding_layer(t_emb_type, t_emb_kwargs)
         self.layers = []
         self.layers.append(
-            nnx.Linear(int(input_dim + t_emb_kwargs["embed_dim"]), hidden_dims[0], rngs=rngs)
+            nnx.Linear(
+                int(input_dim + t_emb_kwargs["embed_dim"]), 
+                hidden_dims[0], 
+                rngs=rngs,
+                kernel_init=nnx.initializers.kaiming_normal()
+            )
         )
         
         for i in range(1, len(hidden_dims)):
             self.layers.append(
-                DenseLayer(hidden_dims[i - 1], hidden_dims[i], act_type=act_type, norm_type=norm_type, rngs=rngs)
+                DenseLayer(hidden_dims[i - 1], hidden_dims[i], act_type=act_type, rngs=rngs)
             )
             
-        self.out_fc = nnx.Linear(hidden_dims[-1], output_dim, rngs=rngs)
+        self.out_fc = nnx.Linear(
+            hidden_dims[-1], 
+            output_dim, 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal()   
+        )
         
     def __call__(self, t, x):
         """
@@ -109,6 +133,7 @@ class MLPMedium(nnx.Module):
         output shape: (batch_size, out_dim)
         """
         t_emb = self.t_emb_layer(t)
+        t_emb = t_emb.squeeze()
         
         x = jnp.concatenate([t_emb, x], axis=-1)
         
@@ -126,22 +151,32 @@ class MLPLarge(nnx.Module):
     t_emb_film_layers: list[nnx.Module]
     out_fc: nnx.Module
     
-    def __init__(self, input_dim, output_dim, hidden_dims, *, t_emb_type, t_emb_kwargs, act_type, norm_type, rngs):
+    def __init__(self, input_dim, output_dim, hidden_dims, *, t_emb_type, t_emb_kwargs, act_type, rngs):
         self.t_emb_layer = get_time_embedding_layer(t_emb_type, t_emb_kwargs)
         self.layers = []
         self.t_emb_film_layers = []
-        self.in_fc = nnx.Linear(input_dim, hidden_dims[0], rngs=rngs)
+        self.in_fc = nnx.Linear(
+            input_dim, 
+            hidden_dims[0], 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal()
+        )
         
         for i in range(1, len(hidden_dims)):
             self.layers.append(
-                DenseLayer(hidden_dims[i - 1], hidden_dims[i], act_type=act_type, norm_type=norm_type, rngs=rngs)
+                DenseLayer(hidden_dims[i - 1], hidden_dims[i], act_type=act_type, rngs=rngs)
             )
             
             self.t_emb_film_layers.append(
                 TimeEmbeddingFiLM(t_emb_kwargs["embed_dim"], hidden_dims[i], rngs=rngs)
             )
             
-        self.out_fc = nnx.Linear(hidden_dims[-1], output_dim, rngs=rngs)
+        self.out_fc = nnx.Linear(
+            hidden_dims[-1], 
+            output_dim, 
+            rngs=rngs,
+            kernel_init=nnx.initializers.kaiming_normal
+        )
         
     def __call__(self, t, x):
         """

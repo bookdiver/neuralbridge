@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 
-from diffrax import ODETerm, Dopri5, diffeqsolve, SaveAt, Euler
+from diffrax import ODETerm, Dopri5, diffeqsolve, SaveAt
 
 class BackwardInformationFilter:
     # unconditional & auxiliary process
@@ -30,7 +30,7 @@ class BackwardInformationFilter:
         self.a_tilde = lambda t: aux_sde.a(t, x=None)
         self.a_tilde_0 = aux_sde._a_tilde_0
         self.a_tilde_T = aux_sde._a_tilde_T
-        self.dim_x = sde.dim
+        self.dim_x = sde.dim_x
         
         self.vT = obs_params["vT"]
         self.dim_v = self.vT.shape[0]
@@ -151,65 +151,10 @@ class BackwardInformationFilter:
         Fs = jax.vmap(F_fn)(Ls, Ms, us)
         return Hs[::-1], Fs[::-1], us[::-1]
     
-    # def _solve_uLM(self, ts):
-    #     from collections import namedtuple
-    #     SolveState = namedtuple("SolveState", ["L", "M_dag", "u"])
-        
-    #     def kernel_dopri5(
-    #         func: callable, t: float, y: jnp.ndarray, dt: float, **kwargs
-    #     ) -> jnp.ndarray:
-    #         k1 = func(t, y, **kwargs)
-    #         k2 = func(t + 1/5 * dt, y + 1/5 * dt * k1, **kwargs)
-    #         k3 = func(t + 3/10 * dt, y + 3/40 * dt * k1 + 9/40 * dt * k2, **kwargs)
-    #         k4 = func(t + 4/5 * dt, y + 44/45 * dt * k1 - 56/15 * dt * k2 + 32/9 * dt * k3, **kwargs)
-    #         k5 = func(t + 8/9 * dt, y + 19372/6561 * dt * k1 - 25360/2187 * dt * k2 + 64448/6561 * dt * k3 - 212/729 * dt * k4, **kwargs)
-    #         k6 = func(t + dt, y + 9017/3168 * dt * k1 - 355/33 * dt * k2 + 46732/5247 * dt * k3 + 49/176 * dt * k4 - 5103/18656 * dt * k5, **kwargs)
-            
-    #         out = y + dt * (35/384 * k1 + 500/1113 * k3 + 125/192 * k4 - 2187/6784 * k5 + 11/84 * k6)
-    #         return out
-        
-    #     def solve_step(solve_state: namedtuple, t_args: tuple) -> namedtuple:
-    #         t, dt = t_args
-    #         L = kernel_dopri5(
-    #             func=lambda t, y: - jnp.einsum("i j, j ... -> i ...", y, self.B(t)),
-    #             t=t,
-    #             y=solve_state.L,
-    #             dt=dt
-    #         )
-    #         M_dag = kernel_dopri5(
-    #             func=lambda t, y: - jnp.einsum("i j, j k, l k -> i l", solve_state.L, self.a_tilde(t), solve_state.L),
-    #             t=t,
-    #             y=solve_state.M_dag,
-    #             dt=dt
-    #         )
-    #         u = kernel_dopri5(
-    #             func=lambda t, y: - jnp.einsum("i j, j ... -> i ...", solve_state.L, self.beta(t)),
-    #             t=t,
-    #             y=solve_state.u,
-    #             dt=dt
-    #         )
-    #         M = jnp.linalg.inv(M_dag)
-    #         new_state = SolveState(L=L, M_dag=M_dag, u=u)
-    #         return new_state, (L, M, u)
-        
-    #     LT, MT_dag, uT = self._initialize_uLM_ode()
-    #     ts = jnp.flip(ts)
-    #     dts = jnp.diff(ts)
-    #     init_state = SolveState(L=LT, M_dag=MT_dag, u=uT)
-    #     _, (Ls, Ms, us) = jax.lax.scan(
-    #         f=solve_step, 
-    #         init=init_state, 
-    #         xs=(ts[1:], dts),
-    #         reverse=True
-    #     )
-    #     Hs = jnp.einsum("t j i, t j k, t k l -> t i l", Ls, Ms, Ls)  # H(t) = L^T(t) M(t) L(t)
-    #     Fs = jnp.einsum("t j i, t j k, t k -> t i", Ls, Ms, self.vT[jnp.newaxis, :] - us)  # F(t) = L^T(t) M(t) (v(t) - mu(t))
-    #     return Hs, Fs, us
-    
     def _solve_close_form(self, ts):
         t0, T = ts[0], ts[-1]
-        assert jnp.isclose(self.B(t0), jnp.zeros((self.dim, self.dim))).all()
-        assert jnp.isclose(self.beta(t0), jnp.zeros((self.dim, ))).all()
+        assert jnp.isclose(self.B(t0), jnp.zeros((self.dim_x, self.dim_x))).all()
+        assert jnp.isclose(self.beta(t0), jnp.zeros((self.dim_x, ))).all()
         
         HT, FT, cT = self._initialize_cFH_ode()
         
@@ -221,7 +166,7 @@ class BackwardInformationFilter:
         def log_omega_H(H):
             """ Compute the normalization constant for a Gaussian with precision matrix H."""
             abs_log_det = jnp.linalg.slogdet(H)[1]
-            return 0.5 * (abs_log_det - jnp.log(2.0 * jnp.pi) * self.dim)
+            return 0.5 * (abs_log_det - jnp.log(2.0 * jnp.pi) * self.dim_x)
         
         def log_psi_H(x, mu, H):
             """ Log Gaussian (observation distribution) pdf with mean of mu and precision matrix of H """
@@ -230,9 +175,9 @@ class BackwardInformationFilter:
         
         def inv_Phi(t):
             if self.a_tilde_0 is None:
-                return jnp.eye(self.dim) + HT @ self.a_tilde_T * (T - t)
+                return jnp.eye(self.dim_x) + HT @ self.a_tilde_T * (T - t)
             else:
-                return jnp.eye(self.dim) \
+                return jnp.eye(self.dim_x) \
                     + HT @ (-(t**2 - T**2) / (2.0 * T) * self.a_tilde_T \
                             + (T-t)**2 / (2.0 * T) * self.a_tilde_0)
         
@@ -243,7 +188,7 @@ class BackwardInformationFilter:
             return jnp.linalg.solve(inv_Phi(t), FT).reshape(FT.shape)
         
         def c(t, H):
-            return log_psi_H(jnp.zeros(self.dim), mu=self.vT, H=H)
+            return log_psi_H(jnp.zeros(self.dim_x), mu=self.vT, H=H)
         
         Hs = jax.vmap(H)(ts)
         Fs = jax.vmap(F)(ts)

@@ -49,8 +49,8 @@ class NeuralBridge(nnx.Module):
     vf: VectorField
     cvf: ControlVectorField
     G_fn: callable
-    dim: int
-    noise_dim: int
+    dim_x: int
+    dim_w: int
     rngs: nnx.Rngs
     
     def __init__(self, b_fn, sigma_fn, G_fn, nn_config):
@@ -60,14 +60,14 @@ class NeuralBridge(nnx.Module):
         )
         self.cvf = ControlVectorField(sigma_fn)
         self.G_fn = G_fn
-        self.noise_dim = nn_config["output_dim"] # noise dimension should match the nn output
-        self.dim = nn_config["input_dim"]
+        self.dim_x = nn_config["input_dim"]
+        self.dim_w = nn_config["output_dim"]
         self.rngs = nn_config["rngs"]
     
     def solve(self, ts, x0, key):
         dts = jnp.diff(ts)
         n_steps = len(dts)
-        dWs = jr.normal(key, (n_steps, self.noise_dim)) * jnp.sqrt(dts[:, None])
+        dWs = jr.normal(key, (n_steps, self.dim_w)) * jnp.sqrt(dts[:, None])
         
         def scan_body(carry, vals):
             t, x, ll = carry
