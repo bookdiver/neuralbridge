@@ -12,8 +12,8 @@ class BrownianSDE(UnconditionalSDE):
     _gamma: jnp.ndarray
     _sigma: jnp.ndarray
     
-    def __init__(self, dim, params):
-        super().__init__(dim)
+    def __init__(self, dim_x, dim_w, params):
+        super().__init__(dim_x, dim_w)
         self._gamma = params["gamma"]
         self._sigma = params["sigma"]
 
@@ -32,8 +32,8 @@ class BrownianBridgeSDE(BridgeSDE):
     _vT: jnp.ndarray
     _T: float
     
-    def __init__(self, dim, params, vT, T):
-        super().__init__(dim, vT, T)
+    def __init__(self, dim_x, dim_w, params, vT, T):
+        super().__init__(dim_x, dim_w, vT, T)
         self._gamma = params["gamma"]
         self._sigma = params["sigma"]
     
@@ -54,14 +54,14 @@ class OUSDE(UnconditionalSDE):
     _mu: jnp.ndarray
     _sigma: jnp.ndarray
     
-    def __init__(self, params):
-        super().__init__(dim_x=1, dim_w=1)
+    def __init__(self, dim_x, dim_w, params):
+        super().__init__(dim_x, dim_w)
         self._gamma = params["gamma"]
         self._mu    = params["mu"]
         self._sigma = params["sigma"]
         
     def b(self, t, x):
-        return self._gamma * (self._mu - x)
+        return self._gamma @ (self._mu - x)
     
     def sigma(self, t, x):
         return self._sigma
