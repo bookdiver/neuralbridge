@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from neuralbridge.sdes.examples import FHNSDE
-from neuralbridge.sdes.base import AuxiliarySDE, GuidedProposalSDE
+from neuralbridge.sdes.base import AuxiliarySDE, GuidedBridgeSDE
 from neuralbridge.sdes.neural_bridge import NeuralBridge
 from neuralbridge.sdes.solver import SDESolver
 from neuralbridge.utils.trainer import train
@@ -95,7 +95,7 @@ def main():
     ts = ts * (2. - ts / args.T)
     epsilon = 2 * 1e-2          # observation noise
     
-    guided_sde = GuidedProposalSDE(
+    guided_sde = GuidedBridgeSDE(
         sde, aux_sde,
         obs_params={
             "vT": vT,

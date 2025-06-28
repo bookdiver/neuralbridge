@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from neuralbridge.sdes.examples import CellSDE
-from neuralbridge.sdes.base import AuxiliarySDE, GuidedProposalSDE
+from neuralbridge.sdes.base import AuxiliarySDE, GuidedBridgeSDE
 from neuralbridge.sdes.neural_bridge import NeuralBridge
 from neuralbridge.sdes.solver import SDESolver
 from neuralbridge.utils.trainer import train
@@ -82,7 +82,7 @@ def main():
     ts = jnp.linspace(0., args.T, n_steps+1, endpoint=True)
     epsilon = 1e-5          # observation noise
     
-    guided_sde = GuidedProposalSDE(
+    guided_sde = GuidedBridgeSDE(
         sde, aux_sde,
         obs_params={
             "vT": vT,

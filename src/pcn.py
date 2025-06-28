@@ -4,20 +4,17 @@ import jax.random as jr
 import tqdm
 from functools import partial
 
-from ..sdes.base import GuidedProposalSDE
+from .base import GuidedProposalSDE
 
 class PCNSampler:
-    guided_sde: GuidedProposalSDE
-    eta: float
-
-    def __init__(self, guided_sde, *, eta):
-        self.guided_sde = guided_sde
+    def __init__(self, guided_proposal_sde, *, eta):
+        self.guided_proposal_sde = guided_proposal_sde
         self.eta = eta
         
     def sample_dWs(self, ts, rng_key):
         dts = jnp.diff(ts)
         n_steps = len(dts)
-        return jr.normal(rng_key, (n_steps, self.guided_sde.dim_w)) * jnp.sqrt(dts[:, None])
+        return jr.normal(rng_key, (n_steps, self.guided_proposal_sde.dim_w)) * jnp.sqrt(dts[:, None])
         
     def solve(self, ts, x0, dWs):
         dts = jnp.diff(ts)
@@ -25,9 +22,9 @@ class PCNSampler:
         def scan_body(carry, vals):
             t, x, ll = carry
             dt, dW = vals
-            drift = self.guided_sde.b(t, x) * dt
-            diffusion = self.guided_sde.sigma(t, x) @ dW
-            ll_increment = self.guided_sde.G(t, x) * dt
+            drift = self.guided_proposal_sde.f(t, x) * dt
+            diffusion = self.guided_proposal_sde.g(t, x) @ dW
+            ll_increment = self.guided_proposal_sde.G(t, x) * dt
             x_new = x + drift + diffusion
             ll_new = ll + ll_increment
             t_new = t + dt
@@ -71,11 +68,11 @@ class PCNSampler:
         if n_sampling_after_burn_in <= 0:
             print(f"Warning: n_iters ({n_iters}) is not greater than n_burn_in ({n_burn_in}). "
                   "No samples will be collected after burn-in. Returning empty samples.")
-            return jnp.empty((0, len(ts), self.guided_sde.dim_x)), jnp.zeros((n_iters,))
+            return jnp.empty((0, len(ts), self.guided_proposal_sde.dim_x)), jnp.zeros((n_iters,))
 
         # Array to store all samples collected after the burn-in period
         collected_xs_after_burn_in = jnp.zeros(
-            (n_samples, len(ts), self.guided_sde.dim_x)
+            (n_samples, len(ts), self.guided_proposal_sde.dim_x)
         )
         
         lls = jnp.zeros((n_iters,)) # Log-likelihoods for all iterations

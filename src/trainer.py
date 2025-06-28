@@ -10,16 +10,30 @@ import optax
 import orbax.checkpoint as ocp
 
 
-@functools.partial(nnx.jit, static_argnums=(5))
+@functools.partial(nnx.jit, static_argnums=(5, ))
 def train_step(nb, optimizer, metrics, x0, ts, batch_size, *, rng_key):
+    """Perform a single training step.
+    
+    Args:
+        nb: Neural bridge model
+        optimizer: Optimizer instance
+        metrics: Metrics tracker
+        x0: Initial state
+        ts: Time discretization
+        batch_size: Number of trajectories per batch
+        rng_key: Random key for sampling
+        
+    Returns:
+        Training loss for this step
+    """
 
     def loss_fn(nb):
         # rng_key = rngs.data()
         sub_keys = jr.split(rng_key, batch_size)
         _, aux = jax.vmap(
-            nb.solve,
-            in_axes=(None, None, 0)
-        )(ts, x0, sub_keys) 
+            nb.solve_with_gradients,
+            in_axes=(0, None, None)
+        )(sub_keys, x0, ts) 
         
         vss, lls = aux # vss: (b, t-1, d), lls: (b, )
         dts = jnp.diff(ts) # dts: (t-1, )
@@ -40,6 +54,31 @@ def train_step(nb, optimizer, metrics, x0, ts, batch_size, *, rng_key):
     return loss
     
 def train(nb, x0, ts, train_config, *, rngs):
+    """Train a neural bridge model.
+    
+    Args:
+        nb: Neural bridge model to train
+        x0: Initial state
+        ts: Time discretization array
+        train_config: Training configuration dictionary
+        rngs: Random number generators
+        
+    Returns:
+        Array of training losses
+    """
+    # Validate configuration
+    required_keys = ["ckpt_dir", "n_iters", "batch_size", "lr"]
+    for key in required_keys:
+        if key not in train_config:
+            raise ValueError(f"Missing required training config key: {key}")
+    
+    if train_config["n_iters"] <= 0:
+        raise ValueError("n_iters must be positive")
+    if train_config["batch_size"] <= 0:
+        raise ValueError("batch_size must be positive")
+    if train_config["lr"] <= 0:
+        raise ValueError("learning rate must be positive")
+    
     ckpt_dir = os.path.abspath(train_config["ckpt_dir"])
     best_dir = os.path.join(ckpt_dir, "best")
     
@@ -64,7 +103,7 @@ def train(nb, x0, ts, train_config, *, rngs):
     
     metrics = nnx.metrics.Average("loss")
     
-    nb.train()
+    nb.nn.train()
     
     best_loss = float('inf')
     best_step = 0
@@ -80,12 +119,12 @@ def train(nb, x0, ts, train_config, *, rngs):
         create=True
     )
     regular_manager = ocp.CheckpointManager(
-        directory=ocp.test_utils.erase_and_create_empty(ckpt_dir),
+        directory=ckpt_dir,
         checkpointers={'state': checkpointer},
         options=regular_options
     )
     best_manager = ocp.CheckpointManager(
-        directory=ocp.test_utils.erase_and_create_empty(best_dir),
+        directory=best_dir,
         checkpointers={'state': checkpointer},
         options=best_options
     )

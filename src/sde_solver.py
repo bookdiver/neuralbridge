@@ -6,17 +6,12 @@ class SDESolver:
     """ Normal SDE Euler solver for most of cases, unable to backpropagate through the solution,
         used for inference.
     """
-    dim_x: int
-    dim_w: int
-    drift: callable
-    diffusion: callable
-    solver: dfx.AbstractItoSolver
     
     def __init__(self, sde, method="euler"):
         self.dim_x = sde.dim_x
         self.dim_w = sde.dim_w
-        self.drift = lambda t, y, _: sde.b(t, y)
-        self.diffusion = lambda t, y, _: sde.sigma(t, y)
+        self.drift = lambda t, y, _: sde.f(t, y)
+        self.diffusion = lambda t, y, _: sde.g(t, y)
         
         if method == "euler":
             self.solver = dfx.Euler()
